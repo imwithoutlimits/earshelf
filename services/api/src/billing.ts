@@ -28,5 +28,5 @@ const store: BillingStore = {
 };
 
 export function processWebhook(raw: string, signature: string | undefined) {
-  return handleWebhook(raw, signature, { signingSecret: config.ls.secret, variants: { plus: config.ls.plus, pro: config.ls.pro } }, store);
+  return handleWebhook(raw, signature, { signingSecret: config.ls.secret, variants: { earshelf: { plus: config.ls.plus, pro: config.ls.pro }, tapestry: { plus: config.ls.tapestryPlus, pro: config.ls.tapestryPro } } }, store);
 }

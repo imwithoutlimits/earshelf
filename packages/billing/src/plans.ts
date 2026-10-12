@@ -1,13 +1,17 @@
 export type Plan = 'free' | 'plus' | 'pro';
-export type Metric = 'documents' | 'server_tts_minutes' | 'ocr_pages' | 'ai_requests' | 'offline_items';
+export type Metric = 'documents' | 'server_tts_minutes' | 'ocr_pages' | 'ai_requests' | 'offline_items' | 'wells';
 
 export type Feature =
   | 'ocr' | 'natural_tts' | 'offline_audio' | 'summaries' | 'notes_highlights' | 'sync'
   | 'pronunciation' | 'semantic_search' | 'ask_document' | 'quizzes' | 'cross_document_search'
-  | 'audio_export' | 'multi_speaker' | 'batch_processing' | 'table_figure_explain';
+  | 'audio_export' | 'multi_speaker' | 'batch_processing' | 'table_figure_explain'
+  // tapestry
+  | 'ai_search' | 'recommendations' | 'ai_well' | 'audio_downloads' | 'reflection_ai' | 'memorize_paths' | 'scheduled_listening' | 'custom_playlists' | 'group_wells' | 'guided_paths_adv' | 'more_translations';
 
-const PLUS: Feature[] = ['ocr', 'natural_tts', 'offline_audio', 'summaries', 'notes_highlights', 'sync', 'pronunciation', 'semantic_search'];
-const PRO: Feature[] = [...PLUS, 'ask_document', 'quizzes', 'cross_document_search', 'audio_export', 'multi_speaker', 'batch_processing', 'table_figure_explain'];
+const TAPESTRY_PLUS: Feature[] = ['ai_search', 'recommendations', 'ai_well', 'audio_downloads', 'reflection_ai', 'memorize_paths', 'scheduled_listening', 'custom_playlists'];
+const TAPESTRY_PRO: Feature[] = ['group_wells', 'guided_paths_adv', 'more_translations'];
+const PLUS: Feature[] = ['ocr', 'natural_tts', 'offline_audio', 'summaries', 'notes_highlights', 'sync', 'pronunciation', 'semantic_search', ...TAPESTRY_PLUS];
+const PRO: Feature[] = [...PLUS, 'ask_document', 'quizzes', 'cross_document_search', 'audio_export', 'multi_speaker', 'batch_processing', 'table_figure_explain', ...TAPESTRY_PRO];
 
 export const PLAN_FEATURES: Record<Plan, ReadonlySet<Feature>> = {
   free: new Set<Feature>(),
@@ -17,9 +21,9 @@ export const PLAN_FEATURES: Record<Plan, ReadonlySet<Feature>> = {
 
 /** -1 means unlimited. Monthly counters except documents/offline_items which are totals. */
 export const PLAN_LIMITS: Record<Plan, Record<Metric, number>> = {
-  free: { documents: 5, server_tts_minutes: 0, ocr_pages: 0, ai_requests: 5, offline_items: 2 },
-  plus: { documents: 100, server_tts_minutes: 600, ocr_pages: 300, ai_requests: 100, offline_items: 50 },
-  pro: { documents: 1000, server_tts_minutes: 3000, ocr_pages: 2000, ai_requests: 1000, offline_items: -1 },
+  free: { documents: 5, server_tts_minutes: 0, ocr_pages: 0, ai_requests: 5, offline_items: 2, wells: 3 },
+  plus: { documents: 100, server_tts_minutes: 600, ocr_pages: 300, ai_requests: 100, offline_items: 50, wells: -1 },
+  pro: { documents: 1000, server_tts_minutes: 3000, ocr_pages: 2000, ai_requests: 1000, offline_items: -1, wells: -1 },
 };
 
 export function hasFeature(plan: Plan, feature: Feature): boolean {
