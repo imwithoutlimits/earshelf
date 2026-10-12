@@ -1,0 +1,1 @@
+{ "name": "@wells/ui", "private": true, "version": "0.1.0", "type": "module", "main": "src/index.ts", "peerDependencies": { "react": "^18.3.1" } }
