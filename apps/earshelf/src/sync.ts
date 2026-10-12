@@ -4,20 +4,20 @@ import { db, deleteAllUserContent, getSetting, setSetting, type AnnotationRecord
 import { reportError } from './monitor';
 import { supabase } from './supabase';
 import type { Plan } from '@wells/billing/src/plans.ts';
+import { coalesceOutbox, makePullTable, makeStatusStore } from '@wells/offline';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 const PRODUCT = 'earshelf';
-export const SYNCED_SETTINGS = ['theme', 'voiceProfile', 'rate', 'pauseScale', 'defaultMode', 'voiceURI', 'useServerVoice', 'ttsProvider', 'ttsVoice'];
+export const SYNCED_SETTINGS = ['theme', 'voiceProfile', 'rate', 'pauseScale', 'defaultMode', 'voiceURI', 'useServerVoice', 'ttsProvider', 'ttsVoice', 'narrCitations', 'narrEquations', 'narrTables', 'dialogueVoice'];
 const iso = (ms: number | undefined) => (ms ? new Date(ms).toISOString() : null);
 const ms = (s: string | null | undefined) => (s ? Date.parse(s) : undefined);
 
 /* ---------- status ---------- */
-export interface SyncStatus { state: 'off' | 'idle' | 'syncing' | 'offline' | 'error'; lastSyncedAt?: number; error?: string }
-let status: SyncStatus = { state: 'off' };
-const listeners = new Set<() => void>();
-const setStatus = (s: SyncStatus) => { status = s; listeners.forEach((l) => l()); };
-export const useSyncStatus = () => useSyncExternalStore((fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; }, () => status);
+export type { SyncStatus } from '@wells/offline';
+const statusStore = makeStatusStore();
+const setStatus = statusStore.set;
+export const useSyncStatus = () => useSyncExternalStore(statusStore.subscribe, statusStore.get);
 
 /* ---------- capture local changes automatically ---------- */
 let suppress = false; // true while applying data that came from the server
@@ -114,7 +114,7 @@ async function pushBatch(table: string, items: Array<{ recordId: string; op: 'pu
     }
   } else if (table === 'review_cards') {
     const rows = (await db.cards.bulkGet(ids)).filter((c): c is NonNullable<typeof c> => !!c).map((c) => ({
-      id: c.id, user_id: uid, document_id: c.docId ?? null, front: c.front, back: c.back, block_ref: c.blockId ?? null, ease: c.ease, interval_days: c.intervalDays,
+      id: c.id, user_id: uid, product: PRODUCT, document_id: c.docId ?? null, front: c.front, back: c.back, block_ref: c.blockId ?? null, ease: c.ease, interval_days: c.intervalDays,
       reps: c.reps, lapses: c.lapses, due_at: iso(c.dueAt), created_at: iso(c.createdAt), deleted_at: iso(c.deletedAt),
     }));
     if (rows.length) must(await supabase.from('review_cards').upsert(rows));
@@ -134,12 +134,7 @@ export async function push() {
   pushing = true;
   try {
     const all = await db.outbox.toArray();
-    const latest = new Map<string, { table: string; recordId: string; op: 'put' | 'delete'; ids: number[] }>();
-    for (const o of all) {
-      const k = `${o.table}:${o.recordId}`;
-      const e = latest.get(k) ?? { table: o.table, recordId: o.recordId, op: o.op, ids: [] };
-      e.op = o.op; e.ids.push(o.id!); latest.set(k, e);
-    }
+    const latest = coalesceOutbox(all);
     const order = ['documents', 'wells', 'well_items', 'playback_progress', 'annotations', 'review_cards', 'document_pronunciations', 'user_preferences'];
     for (const table of order) {
       const items = [...latest.values()].filter((e) => e.table === table);
@@ -158,22 +153,8 @@ function deviceId(): string {
   return d;
 }
 
-async function pullTable(name: string, apply: (rows: Row[], pending: Set<string>) => Promise<void>) {
-  if (!supabase || !uid) return;
-  const cursorKey = `cursor:${name}`;
-  let cursor = await getSetting<string>(cursorKey, '1970-01-01T00:00:00Z');
-  for (;;) {
-    const { data, error } = await supabase.from(name).select('*').eq('user_id', uid).gt('updated_at', cursor).order('updated_at', { ascending: true }).limit(500);
-    if (error) throw error;
-    if (!data.length) return;
-    const pending = new Set((await db.outbox.toArray()).map((o) => `${o.table}:${o.recordId}`));
-    suppress = true;
-    try { await apply(data as Row[], pending); } finally { suppress = false; }
-    cursor = data[data.length - 1].updated_at as string;
-    await setSetting(cursorKey, cursor);
-    if (data.length < 500) return;
-  }
-}
+/** scoped = the table is shared between apps, so only this app's rows are fetched. */
+const pullTable = makePullTable({ getClient: () => supabase, getUid: () => uid, product: PRODUCT, getSetting, setSetting, pending: async () => new Set((await db.outbox.toArray()).map((o) => `${o.table}:${o.recordId}`)), setSuppress: (v) => { suppress = v; } });
 
 async function applyDocuments(rows: Row[], pending: Set<string>) {
   if (!supabase) return;
@@ -211,12 +192,12 @@ export async function pull() {
       if (r.deleted_at) { await db.wells.delete(r.id); await db.wellItems.where('wellId').equals(r.id).delete(); }
       else await db.wells.put({ id: r.id, name: r.name, kind: r.kind, rule: r.smart_rule?.rule, voiceProfile: r.voice_id ?? undefined, createdAt: ms(r.created_at) ?? Date.now() });
     }
-  });
+  }, true);
   await pullTable('well_items', async (rows, pending) => {
     for (const r of rows) {
       if (pending.has(`well_items:${r.id}`)) continue;
       if (r.deleted_at) await db.wellItems.delete(r.id);
-      else await db.wellItems.put({ id: r.id, wellId: r.well_id, docId: r.item_id, position: Number(r.position) });
+      else if (await db.wells.get(r.well_id)) await db.wellItems.put({ id: r.id, wellId: r.well_id, docId: r.item_id, position: Number(r.position) });
     }
   });
   await pullTable('playback_progress', async (rows, pending) => {
@@ -226,7 +207,7 @@ export async function pull() {
       const remoteAt = ms(r.updated_at) ?? 0;
       if (!local || local.updatedAt < remoteAt) await db.progress.put({ docId: r.item_id, index: r.utterance_index, total: r.total, completed: r.completed, updatedAt: remoteAt });
     }
-  });
+  }, true);
   for (const [remote, kind] of [['bookmarks', 'bookmark'], ['highlights', 'highlight'], ['notes', 'note']] as const) {
     await pullTable(remote, async (rows, pending) => {
       for (const r of rows) {
@@ -236,14 +217,14 @@ export async function pull() {
           body: kind === 'note' ? r.body : undefined, createdAt: ms(r.created_at) ?? Date.now(), updatedAt: ms(r.updated_at) ?? Date.now(), deletedAt: ms(r.deleted_at),
         });
       }
-    });
+    }, true);
   }
   await pullTable('review_cards', async (rows, pending) => {
     for (const r of rows) {
       if (pending.has(`review_cards:${r.id}`)) continue;
       await db.cards.put({ id: r.id, docId: r.document_id ?? undefined, front: r.front, back: r.back, blockId: r.block_ref ?? undefined, ease: r.ease, intervalDays: r.interval_days, reps: r.reps, lapses: r.lapses, dueAt: ms(r.due_at) ?? Date.now(), createdAt: ms(r.created_at) ?? Date.now(), updatedAt: ms(r.updated_at) ?? Date.now(), deletedAt: ms(r.deleted_at) });
     }
-  });
+  }, true);
   await pullTable('document_pronunciations', async (rows, pending) => {
     for (const r of rows) {
       if (pending.has(`document_pronunciations:${r.id}`)) continue;
@@ -253,7 +234,7 @@ export async function pull() {
   await pullTable('user_preferences', async (rows, pending) => {
     if (pending.has('user_preferences:prefs')) return;
     for (const r of rows) if (r.product === PRODUCT) for (const k of SYNCED_SETTINGS) if (k in (r.prefs ?? {})) await db.settings.put({ key: k, value: r.prefs[k] });
-  });
+  }, true);
   // Plan comes from verified entitlements written by the billing webhook.
   const ent = await supabase.from('entitlements').select('plan,active,expires_at').eq('user_id', uid).eq('product', PRODUCT).maybeSingle();
   if (!ent.error) {
@@ -269,15 +250,15 @@ let tick = 0;
 
 export async function syncNow(fullPull = true) {
   if (!supabase || !uid) return;
-  if (!navigator.onLine) { setStatus({ ...status, state: 'offline' }); return; }
-  setStatus({ ...status, state: 'syncing' });
+  if (!navigator.onLine) { setStatus({ ...statusStore.get(), state: 'offline' }); return; }
+  setStatus({ ...statusStore.get(), state: 'syncing' });
   try {
     await push();
     if (fullPull) await pull();
     setStatus({ state: 'idle', lastSyncedAt: Date.now() });
   } catch (e) {
     const m = e instanceof Error ? e.message : (e as { message?: string })?.message ?? 'Sync failed';
-    setStatus({ state: 'error', lastSyncedAt: status.lastSyncedAt, error: m });
+    setStatus({ state: 'error', lastSyncedAt: statusStore.get().lastSyncedAt, error: m });
     reportError(e instanceof Error ? e : new Error(m), 'sync');
   }
 }
