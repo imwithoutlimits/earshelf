@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // Lets the phone's Share menu send a link or text straight into earshelf (installed app, Android and desktop Chrome).
-const shareTarget = { share_target: { action: '/', method: 'GET', params: { title: 'title', text: 'text', url: 'url' } } };
+const shareTarget = { share_target: { action: '/', method: 'GET', params: { title: 'title', text: 'text', url: 'url' } } } as const;
 
 export default defineConfig({
   plugins: [
