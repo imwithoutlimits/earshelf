@@ -45,11 +45,16 @@ export interface AudioKeyParams {
   mode: string;
   pauseScale: number;
   pronunciations: Array<{ term: string; say: string }>;
+  overrides?: object;
+  dialogueVoice?: string;
 }
 
 /** Any change that would change the audio changes the key, so stale audio is never reused. */
 export function audioCacheKey(p: AudioKeyParams): string {
-  const s = JSON.stringify([p.docId, p.docUpdatedAt, p.provider, p.voice, p.mode, Math.round(p.pauseScale * 100), [...p.pronunciations].sort((a, b) => a.term.localeCompare(b.term)).map((x) => [x.term, x.say])]);
+  const parts: unknown[] = [p.docId, p.docUpdatedAt, p.provider, p.voice, p.mode, Math.round(p.pauseScale * 100), [...p.pronunciations].sort((a, b) => a.term.localeCompare(b.term)).map((x) => [x.term, x.say])];
+  const ov = p.overrides && Object.keys(p.overrides).length ? Object.entries(p.overrides as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)) : null;
+  if (ov || p.dialogueVoice) parts.push(ov, p.dialogueVoice ?? null);
+  const s = JSON.stringify(parts);
   let h1 = 5381, h2 = 52711;
   for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); h1 = ((h1 * 33) ^ c) >>> 0; h2 = ((h2 * 33) ^ c) >>> 0; }
   return h1.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0');

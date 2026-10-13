@@ -94,6 +94,9 @@ export function parseStructure(text: string, meta: ParseMeta): ParsedDocument {
     }
     flushTable();
 
+    const eq = /^\$\$([\s\S]+)\$\$$/.exec(chunk) ?? /^\\\[([\s\S]+)\\\]$/.exec(chunk);
+    if (eq) { push({ type: 'equation', text: eq[1].replace(/\s+/g, ' ').trim() }); continue; }
+
     if (lines.length === 2 && /^(=+|-+)$/.test(lines[1].trim()) && lines[0].trim().length > 0) {
       push({ type: 'heading', level: lines[1].trim()[0] === '=' ? 1 : 2, text: lines[0].trim() });
       continue;
