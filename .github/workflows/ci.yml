@@ -1,0 +1,44 @@
+# Runs on every push. A red X on GitHub means something needs fixing. Netlify and Coolify deploy independently.
+name: checks
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - name: Unit tests
+        run: npm test
+      - name: Type check
+        run: npm run typecheck
+      - name: Build the app
+        run: npm run build
+  # Proves the server image builds, on the same kind of chip as Oracle's free ARM servers, before you deploy it.
+  server-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/api/Dockerfile
+          platforms: linux/arm64
+          push: false
+  # Lists the license of every dependency so nothing is a surprise before you sell the app.
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install --no-audit --no-fund
+      - name: Collect licenses
+        run: npx --yes license-checker --production --csv --out licenses.csv
+      - name: Flag licenses that need a closer look
+        run: grep -iE "GPL|AGPL|SSPL|UNKNOWN|CUSTOM" licenses.csv || echo "None flagged"
+      - uses: actions/upload-artifact@v4
+        with: { name: licenses, path: licenses.csv }
