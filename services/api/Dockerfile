@@ -1,4 +1,4 @@
-# Build context is the repository root (Render: Docker context ".", Dockerfile "services/api/Dockerfile").
+# Build context is the repository root. Works on any Docker host (deploy/docker-compose.yml builds it for Coolify).
 FROM node:22-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
