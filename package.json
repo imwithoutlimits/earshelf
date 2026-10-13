@@ -14,7 +14,8 @@
     "test": "node --test packages/core/src/*.test.ts packages/scripture/src/*.test.ts packages/activity/src/*.test.ts packages/auth/src/*.test.ts packages/offline/src/*.test.ts packages/billing/src/*.test.ts packages/audio-player/src/*.test.ts services/api/src/*.test.ts services/api/src/*/*.test.ts",
     "typecheck": "tsc -p tsconfig.base.json --noEmit && npm run typecheck -w @wells/earshelf && npm run typecheck -w @wells/tapestry",
     "dev:tapestry": "npm run dev -w @wells/tapestry",
-    "build:tapestry": "npm run build -w @wells/tapestry"
+    "build:tapestry": "npm run build -w @wells/tapestry",
+    "build:site": "node scripts/build-site.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

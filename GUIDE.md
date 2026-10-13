@@ -322,7 +322,7 @@ Tapestry uses the same GitHub repo, the same Supabase project and the same Cooli
 
 **A. Database (Supabase, 3 minutes).** Open Supabase, then SQL Editor, then New query. Run these files from the repo folder `supabase/migrations`, in this order, one at a time (paste the whole file, press Run). Skip any you already ran: `0005_product_scope.sql`, `0050_tapestry_content.sql`, `0051_tapestry_activity.sql`. Each should end with "Success".
 
-**B. The website (Netlify).** Add new site, Import from GitHub, pick the same repo. Set **Base directory** to `apps/tapestry` (the build settings then come from `apps/tapestry/netlify.toml`). Add environment variables `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (same values as earshelf) and `VITE_API_URL` (your Coolify address). Deploy.
+**B. The website (Netlify).** Add new site, Import from GitHub, pick the same repo. Leave **Base directory** EMPTY. Add environment variables `SITE_APP` = `tapestry`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` (same values as earshelf) and `VITE_API_URL` (your Coolify address). Deploy. `SITE_APP=tapestry` is what makes the shared build file build Tapestry instead of earshelf.
 
 **C. Let the new site talk to your server and login.** In Coolify, edit the API settings: add the Tapestry site address to `ALLOWED_ORIGINS` (comma between addresses), then Redeploy. In Supabase, Authentication, URL Configuration, add the Tapestry address to Redirect URLs.
 

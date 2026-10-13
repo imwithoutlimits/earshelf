@@ -1,0 +1,9 @@
+# The server image only needs packages/ and services/api. Keep the build upload small.
+.git
+.github
+apps
+supabase
+deploy
+**/node_modules
+**/dist
+*.md

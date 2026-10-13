@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity as ActivityIcon, FolderOpen, Home as HomeIcon, Search as SearchIcon, User, WifiOff } from 'lucide-react';
 import { ensureDefaultWells, getSetting } from './db';
 import { AuthContext, SignIn, useSession } from './auth';
@@ -8,6 +8,7 @@ import { installServerVoice } from './serverVoice';
 import { player, usePlan, useSetting } from './hooks';
 import { hasFeature } from '@wells/billing/src/plans.ts';
 import { setMonitorUser } from './monitor';
+import { parseShare } from '@wells/core';
 import { useAutoIndex } from './semantic';
 import { useCapabilities } from './serverVoice';
 import { Review } from './views/Review';
@@ -36,6 +37,10 @@ export default function App() {
   const plan = usePlan();
   const caps = useCapabilities(!!session);
   const [reviewing, setReviewing] = useState(false);
+  // Something shared from the phone's Share menu or the browser extension arrives in the address.
+  const [share, setShare] = useState(() => parseShare(location.search));
+  const mainRef = useRef<HTMLElement>(null);
+  const firstRender = useRef(true);
   // Documents are prepared for search by meaning in the background, after each sync.
   useAutoIndex(!!session && hasFeature(plan, 'semantic_search') && !!caps?.embeddings, sync.lastSyncedAt);
   useEffect(() => { setMonitorUser(session?.user.id); }, [session?.user.id]);
@@ -85,6 +90,11 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const gateOpen = ready && (!supabase || !!session || localOnly);
+  useEffect(() => { if (share && gateOpen) { setImporting(true); history.replaceState(null, '', location.pathname); } }, [share, gateOpen]);
+  // Moving to a new screen moves keyboard and screen-reader focus to it, instead of leaving it on the old button.
+  useEffect(() => { if (firstRender.current) { firstRender.current = false; return; } mainRef.current?.focus({ preventScroll: true }); }, [view, reader?.docId, reviewing]);
+
   const open = (docId: string, blockId?: string) => setReader({ docId, blockId });
 
   if (!ready) return <div className="splash" role="status">Loading…</div>;
@@ -93,6 +103,7 @@ export default function App() {
   return (
     <AuthContext.Provider value={session}>
     <div className="shell">
+      <a className="skip-link" href="#main" onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}>Skip to content</a>
       <nav className="sidenav" aria-label="Primary">
         <div className="brand">earshelf</div>
         {NAV.map(({ id, label, Icon }) => (
@@ -102,7 +113,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main className="content">
+      <main className="content" id="main" tabIndex={-1} ref={mainRef}>
         {!online && <div className="banner" role="status"><WifiOff size={16} /> You’re offline. Your library and device voices still work.</div>}
         {online && sync.state === 'error' && <div className="banner" role="alert">Your changes are saved on this device but could not sync yet. <button className="link-btn inline" onClick={() => void syncNow(true)}>Try again</button></div>}
         {reader ? <Reader docId={reader.docId} focusBlockId={reader.blockId} onBack={() => setReader(null)} /> : reviewing ? <Review onClose={() => setReviewing(false)} onOpen={(d, b) => { setReviewing(false); open(d, b); }} /> : (
@@ -126,7 +137,7 @@ export default function App() {
         ))}
       </nav>
 
-      {importing && <ImportSheet onClose={() => setImporting(false)} onDone={(id) => { setImporting(false); open(id); }} />}
+      {importing && <ImportSheet initial={share ?? undefined} onClose={() => { setImporting(false); setShare(null); }} onDone={(id) => { setImporting(false); setShare(null); open(id); }} />}
     </div>
     </AuthContext.Provider>
   );

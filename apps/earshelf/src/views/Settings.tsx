@@ -25,6 +25,9 @@ export function Settings() {
   const [rate, setRate] = useSetting('rate', 1);
   const [pause, setPause] = useSetting('pauseScale', 1);
   const [mode, setMode] = useSetting<ReadingMode>('defaultMode', 'clean');
+  const [nCitations, setNCitations] = useSetting('narrCitations', '');
+  const [nEquations, setNEquations] = useSetting('narrEquations', '');
+  const [nTables, setNTables] = useSetting('narrTables', '');
   const prons = useLiveQuery(() => db.pron.toArray(), [], []);
   const [term, setTerm] = useState('');
   const [say, setSay] = useState('');
@@ -121,6 +124,27 @@ export function Settings() {
         <label className="field">Default reading mode
           <select value={mode} onChange={(e) => setMode(e.target.value as ReadingMode)}>
             {(Object.keys(MODE_LABELS) as ReadingMode[]).map((m) => <option key={m} value={m}>{MODE_LABELS[m].name}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="card stack">
+        <h2 className="sub">What gets read aloud</h2>
+        <p className="hint">These choices sit on top of the reading mode. Leave them on "Follow the reading mode" to let each mode decide.</p>
+        <label className="field">Citations like [3] or (Smith, 2020)
+          <select value={nCitations} onChange={(e) => setNCitations(e.target.value)}>
+            <option value="">Follow the reading mode</option><option value="skip">Skip them</option><option value="author-year">Read author and year</option><option value="full">Read them in full</option>
+          </select>
+        </label>
+        <label className="field">Equations
+          <select value={nEquations} onChange={(e) => setNEquations(e.target.value)}>
+            <option value="">Follow the reading mode</option><option value="off">Skip them</option><option value="symbols">Say them in words</option>
+          </select>
+          <span className="hint">Works on formulas written in LaTeX between dollar signs, such as $x^2$.</span>
+        </label>
+        <label className="field">Tables
+          <select value={nTables} onChange={(e) => setNTables(e.target.value)}>
+            <option value="">Follow the reading mode</option><option value="skip">Skip them</option><option value="announce">Just say there is a table</option><option value="read">Read the rows</option>
           </select>
         </label>
       </div>

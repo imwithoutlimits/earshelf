@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { PlayerController } from '@wells/audio-player';
-import { buildUtterances, pickWellStyle, scaledNarration } from '@wells/core';
+import { buildUtterances, pickWellStyle, sanitizeOverrides, scaledNarration } from '@wells/core';
+import type { NarrationOverrides } from '@wells/core';
 import type { ReadingMode, Utterance } from '@wells/core';
 import { hasFeature, type Feature, type Plan } from '@wells/billing/src/plans.ts';
 import { db, queueSync, setSetting, type DocRecord } from './db';
@@ -67,16 +68,34 @@ export function useDocStyle(docId: string | undefined): { rate: number; pause: n
   }, [wells, memberOf, rate, pause]);
 }
 
+export interface Narration { overrides: NarrationOverrides; dialogueVoice: string }
+
+/** The person's narration choices (citations, equations, tables, second voice for dialogue) on top of the reading mode. */
+export function useNarration(): Narration {
+  const [citations] = useSetting('narrCitations', '');
+  const [equations] = useSetting('narrEquations', '');
+  const [tables] = useSetting('narrTables', '');
+  const [dialogueVoice] = useSetting('dialogueVoice', '');
+  const [serverOn] = useSetting('useServerVoice', false);
+  const canMulti = useHasFeature('multi_speaker');
+  return useMemo(() => {
+    const dialogue = !!dialogueVoice && serverOn && canMulti;
+    // Always carries an explicit dialogue flag so the screen and the server build identical sentences.
+    return { overrides: sanitizeOverrides({ citations: citations || undefined, equations: equations || undefined, tables: tables || undefined, dialogue }), dialogueVoice: dialogue ? dialogueVoice : '' };
+  }, [citations, equations, tables, dialogueVoice, serverOn, canMulti]);
+}
+
 export function useUtterances(doc: DocRecord | undefined): Utterance[] {
   const scale = useDocStyle(doc?.id).pause;
+  const narr = useNarration();
   const canPron = useHasFeature('pronunciation');
   const prons = useLiveQuery(() => db.pron.toArray(), [], []);
   return useMemo(() => {
     if (!doc) return [];
     const mine = canPron ? prons.filter((p) => !p.docId || p.docId === doc.id) : [];
-    return buildUtterances(doc.parsed, scaledNarration(doc.readingMode, scale), mine);
+    return buildUtterances(doc.parsed, scaledNarration(doc.readingMode, scale, narr.overrides), mine);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc?.id, doc?.updatedAt, doc?.readingMode, scale, canPron, prons]);
+  }, [doc?.id, doc?.updatedAt, doc?.readingMode, scale, canPron, prons, narr]);
 }
 
 /** Loads a document into the shared player (resuming from saved progress) without starting playback. */
