@@ -4,7 +4,7 @@
 services:
   api:
     build:
-      context: ..
+      context: .
       dockerfile: services/api/Dockerfile
     restart: unless-stopped
     expose:
