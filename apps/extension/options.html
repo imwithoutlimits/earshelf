@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>earshelf extension settings</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 480px; margin: 32px auto; padding: 0 16px; color: #262522; background: #fbfaf7; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input { width: 100%; box-sizing: border-box; min-height: 44px; padding: 8px 12px; font: inherit; border: 1px solid #e5e1d8; border-radius: 12px; }
+  button { margin-top: 12px; min-height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: #315f72; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  #status { margin-top: 12px; }
+</style>
+</head>
+<body>
+  <h1>Send to earshelf</h1>
+  <label for="site">Your earshelf address</label>
+  <input id="site" type="url" placeholder="https://your-site.netlify.app" autocomplete="off">
+  <button id="save">Save</button>
+  <p id="status" role="status"></p>
+  <script src="options.js"></script>
+</body>
+</html>

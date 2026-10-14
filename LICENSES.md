@@ -32,6 +32,36 @@ Status of every entry is **not yet reviewed**. Licenses below are what each proj
 | Piper | Code license changed across versions, and each voice model has its own license. Check both. |
 | VoiceStudio | AGPL-3.0, and its default model may be non-commercial. Keep it as a separate internal tool. |
 
-## Scripture translations (tapestry, later)
+## Scripture translations (tapestry)
 
-Store `translation_name`, `abbreviation`, `copyright_notice`, `license_name`, `license_url`, `source_url` per translation before importing any text.
+| Field | World English Bible (WEB) |
+|---|---|
+| id / abbreviation | `engwebp` / WEB |
+| license | Public domain |
+| notice stored in `translations.copyright_notice` | The World English Bible is in the public domain. "World English Bible" is a trademark of eBible.org: if the text is changed in any way, it must not be called the World English Bible. |
+| source | https://ebible.org/Scriptures/details.php?id=engwebp (verse-per-line download: `engwebp_vpl.zip`) |
+| commercial use | Allowed (public domain). Reviewed from the eBible.org details page. |
+| restriction | Do not alter the text and still call it WEB. Tapestry never rewrites Scripture. |
+
+Other translations stay disabled (`translations.enabled = false`) until their terms are read and recorded here. Starter-well passage lists are our own editorial selection (references only).
+
+## Fonts and libraries added with Tapestry
+
+| Item | License | Notes |
+|---|---|---|
+| Newsreader (variable) | SIL Open Font License 1.1 | Scripture and headings. `@fontsource-variable/newsreader` |
+| Instrument Sans (variable) | SIL Open Font License 1.1 | Interface text. `@fontsource-variable/instrument-sans` |
+| Dexie, dexie-react-hooks | Apache-2.0 | On-device database |
+| fflate | MIT | Unzips the WEB download on the server |
+| React, Vite, vite-plugin-pwa | MIT | Same as earshelf |
+
+The sample verses inside the preview page (`apps/tapestry/preview/preview.tsx`) were typed by hand for demonstration only and are never used by the real app.
+
+## Hosting and services (added with the move to Oracle Cloud)
+
+| Service | Note |
+|---|---|
+| Oracle Cloud Always Free | Free allowances and idle-reclaim rules are set by Oracle and have changed before. Re-read their terms. Upgrading to Pay As You Go keeps free-tier resources free but needs a card. |
+| Coolify | Open-source deployment panel. Check its license for your use. |
+| sslip.io and DuckDNS | Free naming services used for HTTPS addresses. No account data is shared with them beyond the server's public IP. |
+| license-checker (CI only) | Used to list dependency licenses. Not shipped in the app. |

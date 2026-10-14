@@ -1,7 +1,9 @@
 # Netlify builds the app from GitHub. You never run npm yourself.
+# Both websites (earshelf and tapestry) use this file with the Base directory left EMPTY.
+# The Tapestry site has one extra Netlify setting, SITE_APP=tapestry, which makes scripts/build-site.mjs build Tapestry.
 [build]
-  command = "npm run build"
-  publish = "apps/earshelf/dist"
+  command = "npm run build:site"
+  publish = "site-dist"
 
 [build.environment]
   NODE_VERSION = "22"

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { audioCacheKey, chunkIndexFor, planChunks } from '@wells/core';
-import type { ChunkRange, Utterance } from '@wells/core';
+import type { ChunkRange, NarrationOverrides, Utterance } from '@wells/core';
 import type { AudioChunk } from '@wells/audio-player';
 import { hasFeature } from '@wells/billing/src/plans.ts';
 import { apiGet, apiPost, apiUrl, supabase } from './supabase';
@@ -12,7 +12,7 @@ interface ChunkResponse { chunkIndex: number; chunkCount: number; durationMs: nu
 export interface Capabilities { plan: string; engines: Array<{ id: string; label: string; commercialUseAllowed: boolean }>; ai: boolean; embeddings: boolean }
 export interface VoiceInfo { id: string; name: string; lang: string }
 
-let active: { doc: DocRecord; utterances: Utterance[]; plan: ChunkRange[]; scale: number; prons: Array<{ term: string; say: string }> } | null = null;
+let active: { doc: DocRecord; utterances: Utterance[]; plan: ChunkRange[]; scale: number; prons: Array<{ term: string; say: string }>; narr: { overrides: NarrationOverrides; dialogueVoice: string } } | null = null;
 const loaded = new Map<number, AudioChunk>();
 let loadedKey = '';
 const inflight = new Map<string, Promise<AudioChunk>>();
@@ -25,16 +25,16 @@ async function voiceSettings() {
 }
 
 /** Tells the natural-voice layer which document is loaded in the player. */
-export async function registerDocument(doc: DocRecord, utterances: Utterance[], scale: number) {
+export async function registerDocument(doc: DocRecord, utterances: Utterance[], scale: number, narr: { overrides: NarrationOverrides; dialogueVoice: string }) {
   const plan = await currentPlan();
   const prons = hasFeature(plan, 'pronunciation') ? (await db.pron.toArray()).filter((p) => !p.docId || p.docId === doc.id).map((p) => ({ term: p.term, say: p.say })) : [];
-  active = { doc, utterances, plan: planChunks(utterances), scale, prons };
+  active = { doc, utterances, plan: planChunks(utterances), scale, prons, narr };
   loaded.clear(); loadedKey = '';
 }
 
 function keyFor(provider: string, voice: string): string {
   const a = active!;
-  return audioCacheKey({ docId: a.doc.id, docUpdatedAt: a.doc.updatedAt, provider, voice, mode: a.doc.readingMode, pauseScale: a.scale, pronunciations: a.prons });
+  return audioCacheKey({ docId: a.doc.id, docUpdatedAt: a.doc.updatedAt, provider, voice, mode: a.doc.readingMode, pauseScale: a.scale, pronunciations: a.prons, overrides: a.narr.overrides, dialogueVoice: a.narr.dialogueVoice || undefined });
 }
 
 async function ensureChunk(ci: number, persist = false): Promise<AudioChunk> {
@@ -52,7 +52,7 @@ async function ensureChunk(ci: number, persist = false): Promise<AudioChunk> {
   if (running) return running;
   const p = (async () => {
     await ensureDocumentSynced(a.doc.id);
-    const r = await apiPost<ChunkResponse>('/v1/chunks', { documentId: a.doc.id, updatedAt: a.doc.updatedAt, chunkIndex: ci, provider, voice, mode: a.doc.readingMode, pauseScale: a.scale, pronunciations: a.prons });
+    const r = await apiPost<ChunkResponse>('/v1/chunks', { documentId: a.doc.id, updatedAt: a.doc.updatedAt, chunkIndex: ci, provider, voice, mode: a.doc.readingMode, pauseScale: a.scale, pronunciations: a.prons, narration: a.narr.overrides, dialogueVoice: a.narr.dialogueVoice });
     let url = r.url;
     if (persist) {
       const res = await fetch(r.url);
@@ -149,7 +149,7 @@ export async function startAudioExport(format: 'mp3' | 'm4b'): Promise<string> {
   const { provider, voice } = await voiceSettings();
   if (!provider || !voice) throw new Error('Choose a natural voice first.');
   await ensureDocumentSynced(a.doc.id);
-  const r = await apiPost<{ jobId: string }>('/v1/export/audio', { documentId: a.doc.id, updatedAt: a.doc.updatedAt, provider, voice, mode: a.doc.readingMode, pauseScale: a.scale, pronunciations: a.prons, format });
+  const r = await apiPost<{ jobId: string }>('/v1/export/audio', { documentId: a.doc.id, updatedAt: a.doc.updatedAt, provider, voice, mode: a.doc.readingMode, pauseScale: a.scale, pronunciations: a.prons, format, narration: a.narr.overrides, dialogueVoice: a.narr.dialogueVoice });
   return r.jobId;
 }
 export const exportStatus = (id: string) => apiGet<ExportStatus>(`/v1/jobs?id=${encodeURIComponent(id)}`);

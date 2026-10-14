@@ -8,7 +8,8 @@ export const config = {
   anonKey: e('SUPABASE_PUBLISHABLE_KEY') || e('SUPABASE_ANON_KEY'),
   serviceKey: e('SUPABASE_SECRET_KEY') || e('SUPABASE_SERVICE_ROLE_KEY'),
   allowedOrigins: list(e('ALLOWED_ORIGINS')),
-  ls: { secret: e('LEMON_SQUEEZY_SIGNING_SECRET'), plus: e('LS_VARIANT_EARSHELF_PLUS'), pro: e('LS_VARIANT_EARSHELF_PRO') },
+  ls: { secret: e('LEMON_SQUEEZY_SIGNING_SECRET'), plus: e('LS_VARIANT_EARSHELF_PLUS'), pro: e('LS_VARIANT_EARSHELF_PRO'), tapestryPlus: e('LS_VARIANT_TAPESTRY_PLUS'), tapestryPro: e('LS_VARIANT_TAPESTRY_PRO') },
+  tapestry: { translationId: e('TAPESTRY_TRANSLATION_ID', 'engwebp'), adminUserIds: new Set(list(e('TAPESTRY_ADMIN_USER_IDS'))) },
   sentryDsn: e('SENTRY_DSN'),
   embed: { base: e('EMBED_BASE_URL').replace(/\/$/, ''), key: e('EMBED_API_KEY'), model: e('EMBED_MODEL', 'text-embedding-3-small'), dims: 384 },
   tts: {

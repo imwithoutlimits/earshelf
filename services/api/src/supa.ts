@@ -52,28 +52,43 @@ export async function signedUrl(bucket: string, path: string, expiresIn = 60 * 6
   return `${config.supabaseUrl}/storage/v1${signedURL}`;
 }
 
-async function listPrefix(bucket: string, prefix: string): Promise<string[]> {
+/** Folders at the top of a person's storage that belong to another app and must never be touched. */
+const OTHER_APP_FOLDERS: Record<string, string[]> = { earshelf: ['tapestry'], tapestry: [] };
+
+async function listPrefix(bucket: string, prefix: string, skip: string[] = []): Promise<string[]> {
   const res = await fetch(`${config.supabaseUrl}/storage/v1/object/list/${bucket}`, { method: 'POST', headers: svcHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ prefix, limit: 1000, offset: 0 }) });
   if (!res.ok) throw new Error(`Storage list ${res.status}`);
   const entries = (await res.json()) as Array<{ name: string; id: string | null }>;
   const files: string[] = [];
   for (const e of entries) {
+    if (skip.includes(e.name)) continue;
     if (e.id) files.push(`${prefix}/${e.name}`);
     else files.push(...(await listPrefix(bucket, `${prefix}/${e.name}`)));
   }
   return files;
 }
 
-/** Removes every stored file and row belonging to the user. Billing records are kept for accounting. */
-export async function deleteUserContent(userId: string): Promise<void> {
+/** Tables that carry a product column, shared by every app. */
+export const PRODUCT_TABLES = ['wells', 'playlists', 'audio_assets', 'playback_progress', 'bookmarks', 'highlights', 'notes', 'downloads', 'search_queries', 'recommendations', 'notifications', 'processing_jobs', 'ai_generations', 'user_preferences', 'usage_events', 'review_cards', 'xp_events', 'activity_days', 'listening_sessions', 'weekly_targets', 'badge_awards', 'weekly_insights', 'push_subscriptions'];
+/** Tables that only one app uses, so they are cleared only for that app. */
+const APP_ONLY_TABLES: Record<string, string[]> = { earshelf: ['documents', 'document_pronunciations'], tapestry: [] };
+
+/** The delete requests for one app's content. Every request names the user, and shared tables also name the product. */
+export function deletionPlan(userId: string, product: 'earshelf' | 'tapestry'): string[] {
+  return [
+    ...(APP_ONLY_TABLES[product] ?? []).map((t) => `${t}?user_id=eq.${userId}`),
+    ...PRODUCT_TABLES.map((t) => `${t}?user_id=eq.${userId}&product=eq.${product}`),
+  ];
+}
+
+/** Removes one app's stored files and rows for the user. Billing records and the other app's data are kept. */
+export async function deleteUserContent(userId: string, product: 'earshelf' | 'tapestry' = 'earshelf'): Promise<void> {
   for (const bucket of ['originals', 'audio']) {
-    const files = await listPrefix(bucket, userId);
+    const files = await listPrefix(bucket, userId, OTHER_APP_FOLDERS[product]);
     for (let i = 0; i < files.length; i += 100) {
       const res = await fetch(`${config.supabaseUrl}/storage/v1/object/${bucket}`, { method: 'DELETE', headers: svcHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ prefixes: files.slice(i, i + 100) }) });
       if (!res.ok) throw new Error(`Storage delete ${res.status}`);
     }
   }
-  await rest(`documents?user_id=eq.${userId}`, { method: 'DELETE', prefer: 'return=minimal' }); // cascades to sections, blocks, chunks
-  for (const t of ['wells', 'playlists', 'audio_assets', 'playback_progress', 'bookmarks', 'highlights', 'notes', 'downloads', 'search_queries', 'recommendations', 'notifications', 'processing_jobs', 'ai_generations', 'document_pronunciations', 'user_preferences', 'usage_events'])
-    await rest(`${t}?user_id=eq.${userId}`, { method: 'DELETE', prefer: 'return=minimal' });
+  for (const path of deletionPlan(userId, product)) await rest(path, { method: 'DELETE', prefer: 'return=minimal' });
 }

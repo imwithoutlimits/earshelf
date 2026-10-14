@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { FileUp, Link2, ClipboardPaste, X } from 'lucide-react';
 import { analyze, DEFAULT_CLEANUP } from '@wells/core';
-import type { CleanupOptions, CleanupReport, ReadingMode } from '@wells/core';
+import type { CleanupOptions, CleanupReport, ReadingMode, ShareIntent } from '@wells/core';
 import { checkUsage } from '@wells/billing/src/plans.ts';
 import { db } from '../db';
 import { ACCEPT, ImportError, importFile, importPaste, importUrl } from '../importers';
@@ -14,22 +14,22 @@ import { useLiveQuery } from 'dexie-react-hooks';
 
 type Tab = 'file' | 'paste' | 'link';
 
-export function ImportSheet({ onClose, onDone, defaultWellId }: { onClose: () => void; onDone: (docId: string) => void; defaultWellId?: string }) {
+export function ImportSheet({ onClose, onDone, defaultWellId, initial }: { onClose: () => void; onDone: (docId: string) => void; defaultWellId?: string; initial?: ShareIntent }) {
   const plan = usePlan();
   const canBatch = useHasFeature('batch_processing');
   const canOcr = useHasFeature('ocr');
   const [defaultMode] = useSetting<ReadingMode>('defaultMode', 'clean');
   const wells = useLiveQuery(() => db.wells.filter((w) => w.kind !== 'smart').toArray(), [], []);
-  const [tab, setTab] = useState<Tab>('file');
+  const [tab, setTab] = useState<Tab>(initial?.kind === 'url' ? 'link' : initial?.kind === 'text' ? 'paste' : 'file');
   const [stage, setStage] = useState<string | null>(null);
   const [imp, setImp] = useState<Imported | null>(null);
   const [report, setReport] = useState<CleanupReport | null>(null);
   const [cleanup, setCleanup] = useState<CleanupOptions>({ ...DEFAULT_CLEANUP });
   const [mode, setMode] = useState<ReadingMode | null>(null);
   const [wellId, setWellId] = useState(defaultWellId ?? '');
-  const [title, setTitle] = useState('');
-  const [text, setText] = useState('');
-  const [url, setUrl] = useState('');
+  const [title, setTitle] = useState(initial?.kind === 'text' ? initial.title ?? '' : '');
+  const [text, setText] = useState(initial?.kind === 'text' ? initial.text : '');
+  const [url, setUrl] = useState(initial?.kind === 'url' ? initial.url : '');
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const cancelled = useRef(false);

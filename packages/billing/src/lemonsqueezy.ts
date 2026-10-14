@@ -43,6 +43,10 @@ export interface VariantMap {
   pro: string;
 }
 
+/** Each app sells its own variants, so a Tapestry purchase is never read as an Earshelf plan. */
+export type ProductVariants = Record<'earshelf' | 'tapestry', VariantMap>;
+export const variantsFor = (map: VariantMap | ProductVariants, product: 'earshelf' | 'tapestry'): VariantMap => ('earshelf' in map ? map[product] : map);
+
 export interface EntitlementUpdate {
   userId: string;
   product: 'earshelf' | 'tapestry';
@@ -86,7 +90,7 @@ export function planForVariant(variantId: string, map: VariantMap): Plan {
 const GRACE_STATUSES = new Set(['active', 'on_trial', 'past_due']);
 
 /** Pure decision function: payload in, DB updates out. The caller persists them and records the event. */
-export function decide(payload: LsPayload, map: VariantMap, now = new Date()): Omit<EventResult, 'duplicate' | 'eventId'> {
+export function decide(payload: LsPayload, map: VariantMap | ProductVariants, now = new Date()): Omit<EventResult, 'duplicate' | 'eventId'> {
   const eventName = payload.meta.event_name;
   const userId = payload.meta.custom_data?.user_id;
   const product = (payload.meta.custom_data?.product === 'tapestry' ? 'tapestry' : 'earshelf') as 'earshelf' | 'tapestry';
@@ -121,7 +125,7 @@ export function decide(payload: LsPayload, map: VariantMap, now = new Date()): O
   if (status === 'cancelled') active = !!a.ends_at && new Date(a.ends_at) > now;
   if (eventName === 'subscription_expired') active = false;
 
-  const plan = active ? planForVariant(variantId, map) : 'free';
+  const plan = active ? planForVariant(variantId, variantsFor(map, product)) : 'free';
   return {
     eventName,
     subscription,
@@ -143,7 +147,7 @@ export type HandleOutcome =
 export async function handleWebhook(
   rawBody: string,
   signature: string | undefined,
-  env: { signingSecret: string; variants: VariantMap },
+  env: { signingSecret: string; variants: VariantMap | ProductVariants },
   store: BillingStore,
   now = new Date(),
 ): Promise<HandleOutcome> {

@@ -13,6 +13,7 @@ export function NaturalVoice({ docId }: { docId?: string }) {
   const [on, setOn] = useSetting('useServerVoice', false);
   const [provider, setProvider] = useSetting('ttsProvider', '');
   const [voice, setVoice] = useSetting('ttsVoice', '');
+  const [dialogueVoice, setDialogueVoice] = useSetting('dialogueVoice', '');
   const voices = useServerVoices(provider);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState<'preview' | 'download' | null>(null);
@@ -23,6 +24,7 @@ export function NaturalVoice({ docId }: { docId?: string }) {
 
   useEffect(() => { if (caps && caps.engines.length && !caps.engines.some((e) => e.id === provider)) setProvider(caps.engines[0].id); }, [caps, provider, setProvider]);
   useEffect(() => { if (voices.length && !voices.some((v) => v.id === voice)) setVoice(voices[0].id); }, [voices, voice, setVoice]);
+  useEffect(() => { if (dialogueVoice && voices.length && !voices.some((v) => v.id === dialogueVoice)) setDialogueVoice(''); }, [voices, dialogueVoice, setDialogueVoice]);
   useEffect(() => { if (docId) void downloadStats(docId).then(setStats); }, [docId, busy]);
 
   if (!user) return <p className="hint">Sign in to use natural voices.</p>;
@@ -59,6 +61,15 @@ export function NaturalVoice({ docId }: { docId?: string }) {
           <select value={voice} onChange={(e) => setVoice(e.target.value)}>{voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
         </label>
       </div>
+      {!hasFeature(plan, 'multi_speaker') ? <p className="locked"><Lock size={16} /> A second voice for dialogue is included with Pro.</p> : (
+        <label className="field">Voice for quoted speech
+          <select value={dialogueVoice} onChange={(e) => setDialogueVoice(e.target.value)} disabled={!canVoice}>
+            <option value="">Same voice for everything</option>
+            {voices.filter((v) => v.id !== voice).map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+          <span className="hint">Anything inside quotation marks is read in this voice. Best for fiction.</span>
+        </label>
+      )}
       <div className="row-end">
         <button className="btn" disabled={!voice || busy !== null} onClick={() => void preview()}><Play size={16} /> {busy === 'preview' ? 'Loading…' : 'Hear a sample'}</button>
       </div>

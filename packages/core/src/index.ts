@@ -8,3 +8,7 @@ export * from './chunks.ts';
 export * from './srs.ts';
 export * from './wellVoice.ts';
 export * from './monitor.ts';
+export * from './math.ts';
+export * from './dialogue.ts';
+export * from './exporters.ts';
+export * from './share.ts';

@@ -1,13 +1,16 @@
 import type { NarrationOptions, ParsedDocument, PronunciationEntry, ReadingMode, Utterance } from './model.ts';
 import { stripCitations, stripNumericCitations } from './cleanup.ts';
 import { splitSentences, wrapLong } from './sentences.ts';
+import { mathToSpeech, replaceInlineMath } from './math.ts';
+import { segmentDialogue } from './dialogue.ts';
+import type { NarrationOverrides } from './model.ts';
 
 export const MODE_PRESETS: Record<ReadingMode, NarrationOptions> = {
-  clean: { tables: 'announce', readCaptions: false, readFootnotes: 'never', citations: 'skip', headingPauseMs: 700, sectionPauseMs: 1100, paragraphPauseMs: 550, sentencePauseMs: 180 },
-  complete: { tables: 'read', readCaptions: true, readFootnotes: 'inline', citations: 'author-year', headingPauseMs: 700, sectionPauseMs: 1100, paragraphPauseMs: 550, sentencePauseMs: 180 },
-  audiobook: { tables: 'skip', readCaptions: false, readFootnotes: 'never', citations: 'skip', headingPauseMs: 900, sectionPauseMs: 1600, paragraphPauseMs: 650, sentencePauseMs: 120 },
-  study: { tables: 'read', readCaptions: true, readFootnotes: 'never', citations: 'author-year', headingPauseMs: 800, sectionPauseMs: 1200, paragraphPauseMs: 700, sentencePauseMs: 220 },
-  accessibility: { tables: 'announce', readCaptions: true, readFootnotes: 'never', citations: 'skip', headingPauseMs: 900, sectionPauseMs: 1400, paragraphPauseMs: 800, sentencePauseMs: 250 },
+  clean: { tables: 'announce', readCaptions: false, readFootnotes: 'never', citations: 'skip', equations: 'off', splitDialogue: false, headingPauseMs: 700, sectionPauseMs: 1100, paragraphPauseMs: 550, sentencePauseMs: 180 },
+  complete: { tables: 'read', readCaptions: true, readFootnotes: 'inline', citations: 'author-year', equations: 'symbols', splitDialogue: false, headingPauseMs: 700, sectionPauseMs: 1100, paragraphPauseMs: 550, sentencePauseMs: 180 },
+  audiobook: { tables: 'skip', readCaptions: false, readFootnotes: 'never', citations: 'skip', equations: 'off', splitDialogue: false, headingPauseMs: 900, sectionPauseMs: 1600, paragraphPauseMs: 650, sentencePauseMs: 120 },
+  study: { tables: 'read', readCaptions: true, readFootnotes: 'never', citations: 'author-year', equations: 'symbols', splitDialogue: false, headingPauseMs: 800, sectionPauseMs: 1200, paragraphPauseMs: 700, sentencePauseMs: 220 },
+  accessibility: { tables: 'announce', readCaptions: true, readFootnotes: 'never', citations: 'skip', equations: 'symbols', splitDialogue: false, headingPauseMs: 900, sectionPauseMs: 1400, paragraphPauseMs: 800, sentencePauseMs: 250 },
 };
 
 export function applyPronunciations(text: string, entries: PronunciationEntry[]): string {
@@ -31,10 +34,10 @@ export function buildUtterances(
   const blocks = new Map(doc.blocks.map((b) => [b.id, b]));
   const lang = doc.language ?? 'en';
 
-  const speak = (t: string) =>
-    applyPronunciations(opts.citations === 'skip' ? stripCitations(t) : stripNumericCitations(t), pronunciations)
-      .replace(/\s+/g, ' ')
-      .trim();
+  const speak = (t: string) => {
+    const cited = opts.citations === 'skip' ? stripCitations(t) : opts.citations === 'full' ? t : stripNumericCitations(t);
+    return applyPronunciations(replaceInlineMath(cited, opts.equations), pronunciations).replace(/\s+/g, ' ').trim();
+  };
 
   doc.sections.forEach((section) => {
     section.blockIds.forEach((bid, bi) => {
@@ -47,8 +50,16 @@ export function buildUtterances(
       };
 
       const readProse = (endPause: number) => {
-        const sentences = splitSentences(b.text, lang).flatMap((s) => wrapLong(s));
-        sentences.forEach((s) => add(b.type, s, speak(s), opts.sentencePauseMs));
+        const segments = opts.splitDialogue ? segmentDialogue(b.text) : [{ text: b.text, dialogue: false }];
+        for (const seg of segments) {
+          for (const s of splitSentences(seg.text, lang).flatMap((x) => wrapLong(x))) {
+            // A quote cut mid-sentence ("Hello," she said) only gets a breath, not a full stop's pause.
+            const endsSentence = /[.!?…]["”’')\]]*$/.test(s);
+            const before = made.length;
+            add(b.type, s, speak(s), opts.splitDialogue && !endsSentence ? 80 : opts.sentencePauseMs);
+            if (seg.dialogue && made.length > before) made[made.length - 1].role = 'dialogue';
+          }
+        }
         if (made.length) made[made.length - 1].pauseAfterMs = endPause;
       };
 
@@ -81,6 +92,12 @@ export function buildUtterances(
           }
           break;
         }
+        case 'equation': {
+          if (opts.equations === 'off') break;
+          const said = `Equation. ${mathToSpeech(b.text)}`;
+          add('equation', b.text, said, opts.paragraphPauseMs);
+          break;
+        }
         case 'caption':
         case 'figure':
           if (opts.readCaptions) readProse(opts.paragraphPauseMs);
@@ -101,7 +118,26 @@ export function estimateMinutes(words: number, rate = 1): number {
   return Math.max(1, Math.round(words / (160 * rate)));
 }
 
-export function scaledNarration(mode: ReadingMode, scale: number): NarrationOptions {
+export function scaledNarration(mode: ReadingMode, scale: number, overrides?: NarrationOverrides): NarrationOptions {
   const p = MODE_PRESETS[mode];
-  return { ...p, headingPauseMs: p.headingPauseMs * scale, sectionPauseMs: p.sectionPauseMs * scale, paragraphPauseMs: p.paragraphPauseMs * scale, sentencePauseMs: p.sentencePauseMs * scale };
+  return {
+    ...p,
+    ...(overrides?.citations ? { citations: overrides.citations } : {}),
+    ...(overrides?.equations ? { equations: overrides.equations } : {}),
+    ...(overrides?.tables ? { tables: overrides.tables } : {}),
+    splitDialogue: overrides?.dialogue ?? p.splitDialogue,
+    headingPauseMs: p.headingPauseMs * scale, sectionPauseMs: p.sectionPauseMs * scale, paragraphPauseMs: p.paragraphPauseMs * scale, sentencePauseMs: p.sentencePauseMs * scale,
+  };
+}
+
+/** Accepts only known values, so a request from outside can never inject anything else. */
+export function sanitizeOverrides(raw: unknown): NarrationOverrides {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const pick = <T extends string>(v: unknown, allowed: readonly T[]): T | undefined => (allowed.includes(v as T) ? (v as T) : undefined);
+  const out: NarrationOverrides = {};
+  const c = pick(r.citations, ['skip', 'author-year', 'full'] as const); if (c) out.citations = c;
+  const e = pick(r.equations, ['off', 'symbols'] as const); if (e) out.equations = e;
+  const t = pick(r.tables, ['skip', 'announce', 'read'] as const); if (t) out.tables = t;
+  if (typeof r.dialogue === 'boolean') out.dialogue = r.dialogue;
+  return out;
 }

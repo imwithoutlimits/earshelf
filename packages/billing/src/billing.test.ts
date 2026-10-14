@@ -99,3 +99,11 @@ test('feature gates and usage limits', () => {
   assert.equal(checkUsage('pro', 'offline_items', 10_000).allowed, true);
   assert.equal(checkUsage('plus', 'ai_requests', 95, 10).allowed, false);
 });
+
+import { decide as decideP, type LsPayload as LsP } from './lemonsqueezy.ts';
+test('a Tapestry purchase is read with Tapestry variants, not Earshelf ones', () => {
+  const maps = { earshelf: { plus: 'E1', pro: 'E2' }, tapestry: { plus: 'T1', pro: 'T2' } };
+  const ev = (product: string, variant: string): LsP => ({ meta: { event_name: 'subscription_created', custom_data: { user_id: 'u1', product } }, data: { id: 's1', attributes: { status: 'active', variant_id: variant, renews_at: '2027-01-01T00:00:00Z', ends_at: null } } } as unknown as LsP);
+  assert.equal(decideP(ev('tapestry', 'T2'), maps).entitlement?.plan, 'pro'); assert.equal(decideP(ev('tapestry', 'E2'), maps).entitlement?.plan, 'free');
+  assert.equal(decideP(ev('earshelf', 'E1'), maps).entitlement?.plan, 'plus');
+});

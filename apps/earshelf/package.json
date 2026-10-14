@@ -13,10 +13,14 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.1.0",
     "@fontsource-variable/literata": "^5.1.0",
+    "@supabase/supabase-js": "^2.45.4",
     "@wells/audio-player": "*",
+    "@wells/auth": "*",
     "@wells/billing": "*",
     "@wells/core": "*",
     "@wells/design-tokens": "*",
+    "@wells/offline": "*",
+    "@wells/ui": "*",
     "dexie": "^4.0.10",
     "dexie-react-hooks": "^1.1.7",
     "jszip": "^3.10.1",
@@ -25,7 +29,6 @@
     "pdfjs-dist": "^4.8.69",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@supabase/supabase-js": "^2.45.4",
     "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
@@ -36,6 +39,7 @@
     "vite": "^5.4.10",
     "vite-plugin-pwa": "^0.20.5",
     "workbox-window": "^7.1.0",
-    "@playwright/test": "^1.48.0"
+    "@playwright/test": "^1.48.0",
+    "@axe-core/playwright": "^4.10.0"
   }
 }

@@ -1,0 +1,21 @@
+# Only used if the Netlify Base directory is set to apps/tapestry. The simpler way (no Base directory, SITE_APP=tapestry) uses the root netlify.toml instead.
+# Tapestry is its own Netlify site. In Netlify set "Base directory" to apps/tapestry; this file then takes over.
+[build]
+  command = "cd ../.. && npm install --no-audit --no-fund && npm run build -w @wells/tapestry"
+  publish = "dist"
+[build.environment]
+  NODE_VERSION = "22"
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), geolocation=()"

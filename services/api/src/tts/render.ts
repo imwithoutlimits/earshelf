@@ -15,8 +15,9 @@ export async function mapPool<T, R>(items: T[], limit: number, fn: (item: T, i: 
 export interface RenderedChunk { samples: Int16Array; items: Array<{ index: number; startMs: number }>; durationMs: number; sampleRate: number }
 
 /** Speaks each utterance, then stitches them with the planned pauses. Indices are positions in the full utterance list. */
-export async function renderChunk(utts: Utterance[], firstIndex: number, engine: TtsEngine, voice: string, concurrency: number = engine.concurrency ?? 4): Promise<RenderedChunk> {
-  const clips = await mapPool(utts, concurrency, (u, i) => engine.synthesize(u.spoken, voice, { previous: utts[i - 1]?.spoken, next: utts[i + 1]?.spoken }));
+export async function renderChunk(utts: Utterance[], firstIndex: number, engine: TtsEngine, voice: string, concurrency: number = engine.concurrency ?? 4, dialogueVoice?: string): Promise<RenderedChunk> {
+  // Quoted speech uses the second voice when one is chosen; everything else uses the narrator.
+  const clips = await mapPool(utts, concurrency, (u, i) => engine.synthesize(u.spoken, u.role === 'dialogue' && dialogueVoice ? dialogueVoice : voice, { previous: utts[i - 1]?.spoken, next: utts[i + 1]?.spoken }));
   const rate = clips[0]?.sampleRate ?? 24000;
   if (clips.some((c) => c.sampleRate !== rate)) throw new Error('The voice engine returned mixed sample rates.');
   const s = stitch(clips.map((c, i) => ({ samples: c.samples, pauseAfterMs: utts[i].pauseAfterMs })), rate);

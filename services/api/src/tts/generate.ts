@@ -1,5 +1,5 @@
 import { audioCacheKey, buildUtterances, estimateSeconds, planChunks, scaledNarration } from '../../../../packages/core/src/index.ts';
-import type { ParsedDocument, PronunciationEntry, ReadingMode } from '../../../../packages/core/src/index.ts';
+import type { NarrationOverrides, ParsedDocument, PronunciationEntry, ReadingMode } from '../../../../packages/core/src/index.ts';
 import { HttpError } from '../entitlements.ts';
 import { rest, signedUrl, storageDownload, storageUpload } from '../supa.ts';
 import { pcmToMp3 } from './ffmpeg.ts';
@@ -9,6 +9,7 @@ import type { TtsEngine } from './types.ts';
 export interface ChunkRequest {
   userId: string; docId: string; docUpdatedAt: number; chunkIndex: number;
   engine: TtsEngine; voice: string; mode: ReadingMode; pauseScale: number; prons: PronunciationEntry[];
+  overrides?: NarrationOverrides; dialogueVoice?: string;
   beforeSynthesis: (estimatedMinutes: number) => Promise<void>;
 }
 export interface ChunkResult {
@@ -24,12 +25,12 @@ export async function loadDocument(userId: string, docId: string): Promise<Parse
 
 export async function generateChunk(r: ChunkRequest): Promise<ChunkResult> {
   const parsed = await loadDocument(r.userId, r.docId);
-  const utts = buildUtterances(parsed, scaledNarration(r.mode, r.pauseScale), r.prons);
+  const utts = buildUtterances(parsed, scaledNarration(r.mode, r.pauseScale, r.overrides), r.prons);
   const plan = planChunks(utts);
   const range = plan[r.chunkIndex];
   if (!range) throw new HttpError(404, 'no_such_chunk', 'That part of the document does not exist.');
 
-  const cacheKey = audioCacheKey({ docId: r.docId, docUpdatedAt: r.docUpdatedAt, provider: r.engine.id, voice: r.voice, mode: r.mode, pauseScale: r.pauseScale, pronunciations: r.prons });
+  const cacheKey = audioCacheKey({ docId: r.docId, docUpdatedAt: r.docUpdatedAt, provider: r.engine.id, voice: r.voice, mode: r.mode, pauseScale: r.pauseScale, pronunciations: r.prons, overrides: r.overrides, dialogueVoice: r.dialogueVoice });
   const base = `${r.userId}/${r.docId}/${cacheKey}/${range.index}`;
   const side = await storageDownload('audio', `${base}.json`);
   if (side) {
@@ -39,7 +40,7 @@ export async function generateChunk(r: ChunkRequest): Promise<ChunkResult> {
 
   const slice = utts.slice(range.start, range.end + 1);
   await r.beforeSynthesis(Math.max(1, Math.ceil(slice.reduce((n, u) => n + estimateSeconds(u), 0) / 60)));
-  const rendered = await renderChunk(slice, range.start, r.engine, r.voice);
+  const rendered = await renderChunk(slice, range.start, r.engine, r.voice, undefined, r.dialogueVoice);
   const mp3 = await pcmToMp3(rendered.samples, rendered.sampleRate);
   await storageUpload('audio', `${base}.mp3`, mp3, 'audio/mpeg');
   await storageUpload('audio', `${base}.json`, JSON.stringify({ durationMs: rendered.durationMs, items: rendered.items }), 'application/json');

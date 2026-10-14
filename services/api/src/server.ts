@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { PronunciationEntry, ReadingMode } from '../../../packages/core/src/index.ts';
+import { sanitizeOverrides } from '../../../packages/core/src/index.ts';
+import type { NarrationOverrides, PronunciationEntry, ReadingMode } from '../../../packages/core/src/index.ts';
 import type { Feature, Plan } from '../../../packages/billing/src/plans.ts';
 import { config } from './config.ts';
 import { deleteUserContent, getUser, rest } from './supa.ts';
@@ -16,6 +17,7 @@ import { explain } from './ai/explain.ts';
 import { indexDocument, makeEmbedder, realSearchRpc, replaceChunks, semanticSearch } from './semantic.ts';
 import { jobStatus, startExport } from './exportJob.ts';
 import { report } from './monitor.ts';
+import { tapestryRoutes } from './tapestry/routes.ts';
 
 type Json = Record<string, unknown>;
 interface Ctx { user: { id: string }; body: Json; query: URLSearchParams; plan: () => Promise<Plan> }
@@ -36,6 +38,16 @@ function limit(key: string, max: number, windowMs: number) {
 
 const docId = (b: Json) => { if (typeof b.documentId !== 'string' || !UUID.test(b.documentId)) throw bad('Missing or invalid documentId.'); return b.documentId; };
 const prons = (b: Json): PronunciationEntry[] => (Array.isArray(b.pronunciations) ? (b.pronunciations as Json[]).filter((p) => typeof p.term === 'string' && typeof p.say === 'string').slice(0, 500).map((p) => ({ term: p.term as string, say: p.say as string })) : []);
+
+/** Reads the person's narration choices. A second voice for dialogue is a Pro feature. */
+function narrationFrom(body: Json, plan: Plan): { overrides: NarrationOverrides; dialogueVoice?: string } {
+  const overrides = sanitizeOverrides(body.narration);
+  const dv = typeof body.dialogueVoice === 'string' ? body.dialogueVoice.trim() : '';
+  if (!dv) return { overrides: { ...overrides, dialogue: false } };
+  if (!/^[\w.\-: ]{1,100}$/.test(dv)) throw bad('That dialogue voice is not valid.');
+  requireFeature(plan, 'multi_speaker');
+  return { overrides: { ...overrides, dialogue: true }, dialogueVoice: dv };
+}
 
 async function aiRun<T>(c: Ctx, feature: Feature, kind: string, fn: (ai: NonNullable<ReturnType<typeof getAiProvider>>, doc: Awaited<ReturnType<typeof loadDocument>>) => Promise<T>): Promise<T> {
   const ai = getAiProvider();
@@ -65,7 +77,7 @@ const routes: Record<string, Route> = {
     embeddings: !!makeEmbedder(),
   }) },
 
-  'POST /v1/account/delete-content': { auth: true, run: async (c) => { await deleteUserContent(c.user.id); return { ok: true }; } },
+  'POST /v1/account/delete-content': { auth: true, run: async (c) => { await deleteUserContent(c.user.id, 'earshelf'); return { ok: true }; } },
 
   'GET /v1/article': { auth: true, run: async (c) => {
     limit(`article:${c.user.id}`, 40, 3600_000);
@@ -97,7 +109,9 @@ const routes: Record<string, Route> = {
     const idx = Number(c.body.chunkIndex), scale = Number(c.body.pauseScale ?? 1), updated = Number(c.body.updatedAt);
     if (!MODES.includes(mode) || !Number.isInteger(idx) || idx < 0 || !(scale >= 0.5 && scale <= 2) || !Number.isFinite(updated) || typeof c.body.voice !== 'string') throw bad('Invalid audio request.');
     limit(`chunks:${c.user.id}`, 120, 3600_000);
+    const narr = narrationFrom(c.body, plan);
     return generateChunk({
+      ...narr,
       userId: c.user.id, docId: docId(c.body), docUpdatedAt: updated, chunkIndex: idx, engine: e, voice: c.body.voice, mode, pauseScale: scale,
       prons: plan === 'free' ? [] : prons(c.body),
       beforeSynthesis: async (minutes) => { await consume(c.user.id, plan, 'server_tts_minutes', minutes); },
@@ -157,6 +171,7 @@ const routes: Record<string, Route> = {
     const format = c.body.format === 'm4b' ? 'm4b' : 'mp3';
     if (!MODES.includes(mode) || !(scale >= 0.5 && scale <= 2) || !Number.isFinite(updated) || typeof c.body.voice !== 'string') throw bad('Invalid export request.');
     const jobId = await startExport({
+      ...narrationFrom(c.body, plan),
       userId: c.user.id, docId: docId(c.body), docUpdatedAt: updated, engine: e, voice: c.body.voice, mode, pauseScale: scale, format,
       prons: plan === 'free' ? [] : prons(c.body),
       beforeSynthesis: async (minutes) => { await consume(c.user.id, plan, 'server_tts_minutes', minutes); },
@@ -172,6 +187,8 @@ const routes: Record<string, Route> = {
     return aiRun(c, 'quizzes', cards ? 'flashcards' : 'quiz', async (ai, doc) => (cards ? { cards: await flashcards(ai, doc, { sectionId, count }) } : { questions: await quiz(ai, doc, { sectionId, count }) }));
   } },
 };
+
+Object.assign(routes, tapestryRoutes({ limit, bad }));
 
 const tokenCache = new Map<string, { id: string; exp: number }>();
 async function authenticate(req: IncomingMessage): Promise<{ id: string }> {
@@ -220,7 +237,7 @@ createServer(async (req, res) => {
     let body: Json = {};
     if (req.method === 'POST') { try { body = JSON.parse((await readBody(req)) || '{}') as Json; } catch (e) { if (e instanceof HttpError) throw e; throw bad('Body must be JSON.'); } }
     let planP: Promise<Plan> | null = null;
-    const out = await route.run({ user, body, query: url.searchParams, plan: () => (planP ??= getPlan(user.id)) });
+    const out = await route.run({ user, body, query: url.searchParams, plan: () => (planP ??= getPlan(user.id, url.pathname.startsWith('/v1/tapestry/') ? 'tapestry' : 'earshelf')) });
     if (out && typeof out === 'object' && '__binary' in out) {
       const b = out as { __binary: Buffer; type: string };
       res.writeHead(200, { 'Content-Type': b.type, 'Content-Length': b.__binary.length }).end(b.__binary);
@@ -231,7 +248,7 @@ createServer(async (req, res) => {
     report(e, `${req.method} ${url.pathname}`);
     res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'server_error', message: 'Something went wrong on our side. Try again in a moment.' }));
   }
-}).listen(config.port, () => console.log(`earshelf api listening on ${config.port}`));
+}).listen(config.port, () => console.log(`wells api (earshelf + tapestry) listening on ${config.port}`));
 
 process.on('uncaughtException', (e) => { console.error('uncaught', e); report(e, 'uncaughtException'); });
 process.on('unhandledRejection', (e) => { console.error('unhandled', e); report(e, 'unhandledRejection'); });

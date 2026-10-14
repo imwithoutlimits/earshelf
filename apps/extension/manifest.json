@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Send to earshelf",
+  "version": "1.0.0",
+  "description": "Send the page or the text you are reading to your earshelf library.",
+  "permissions": ["activeTab", "contextMenus", "storage"],
+  "action": { "default_popup": "popup.html", "default_title": "Send to earshelf" },
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "icons": { "16": "icon-16.png", "48": "icon-48.png", "128": "icon-128.png" }
+}

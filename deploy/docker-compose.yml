@@ -1,0 +1,73 @@
+# Runs the earshelf server (and the free Kokoro voice engine) on any Docker host. Built for Coolify.
+# In Coolify: build pack "Docker Compose", base directory "/", compose file "/deploy/docker-compose.yml".
+# Coolify reads the ${NAMES} below and shows them as boxes to fill in. Nothing secret is stored in this file.
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: services/api/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "10000"
+    environment:
+      - PORT=10000
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_PUBLISHABLE_KEY=${SUPABASE_PUBLISHABLE_KEY}
+      - SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - LEMON_SQUEEZY_SIGNING_SECRET=${LEMON_SQUEEZY_SIGNING_SECRET:-}
+      - LS_VARIANT_EARSHELF_PLUS=${LS_VARIANT_EARSHELF_PLUS:-}
+      - LS_VARIANT_EARSHELF_PRO=${LS_VARIANT_EARSHELF_PRO:-}
+      - LS_VARIANT_TAPESTRY_PLUS=${LS_VARIANT_TAPESTRY_PLUS:-}
+      - LS_VARIANT_TAPESTRY_PRO=${LS_VARIANT_TAPESTRY_PRO:-}
+      - TAPESTRY_TRANSLATION_ID=${TAPESTRY_TRANSLATION_ID:-engwebp}
+      - TAPESTRY_ADMIN_USER_IDS=${TAPESTRY_ADMIN_USER_IDS:-}
+      - TTS_KOKORO_HOSTPORT=kokoro:8880
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-}
+      - ELEVENLABS_VOICE_IDS=${ELEVENLABS_VOICE_IDS:-}
+      - ELEVENLABS_CONCURRENCY=${ELEVENLABS_CONCURRENCY:-}
+      - TTS_OPENAI_BASE_URL=${TTS_OPENAI_BASE_URL:-}
+      - TTS_OPENAI_API_KEY=${TTS_OPENAI_API_KEY:-}
+      - TTS_OPENAI_MODEL=${TTS_OPENAI_MODEL:-}
+      - TTS_OPENAI_VOICES=${TTS_OPENAI_VOICES:-}
+      - TTS_OPENAI_FORMAT=${TTS_OPENAI_FORMAT:-pcm}
+      - EDGE_TTS_ENABLED=${EDGE_TTS_ENABLED:-false}
+      - EDGE_TTS_ALLOWED_USER_IDS=${EDGE_TTS_ALLOWED_USER_IDS:-}
+      - AI_PROVIDER=${AI_PROVIDER:-anthropic}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-claude-haiku-4-5-20251001}
+      - AI_BASE_URL=${AI_BASE_URL:-}
+      - EMBED_API_KEY=${EMBED_API_KEY:-}
+      - EMBED_BASE_URL=${EMBED_BASE_URL:-}
+      - EMBED_MODEL=${EMBED_MODEL:-}
+      - SENTRY_DSN=${SENTRY_DSN:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:10000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Free local AI for Tapestry (recommendations, reflection prompts). Private: only the api service can reach it.
+  # Not wanted? Delete this whole block. After the first deploy, pull the model once (GUIDE.md Part 13, step F).
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    expose:
+      - "11434"
+    mem_limit: 4g
+    volumes:
+      - ollama:/root/.ollama
+
+  # Free, open voices. Private: only the api service can reach it. The image runs on both Intel and ARM servers.
+  # Not wanted? Delete this whole block and the TTS_KOKORO_HOSTPORT line above.
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
+    restart: unless-stopped
+    expose:
+      - "8880"
+    mem_limit: 4g
+
+volumes:
+  ollama:

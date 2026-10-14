@@ -2,7 +2,7 @@ export type SourceType = 'pdf' | 'epub' | 'md' | 'txt' | 'docx' | 'html' | 'imag
 
 export type BlockType =
   | 'heading' | 'paragraph' | 'list_item' | 'quote' | 'table'
-  | 'figure' | 'caption' | 'footnote' | 'code';
+  | 'figure' | 'caption' | 'footnote' | 'code' | 'equation';
 
 export interface DocBlock {
   id: string;
@@ -50,7 +50,10 @@ export interface NarrationOptions {
   tables: 'skip' | 'announce' | 'read';
   readCaptions: boolean;
   readFootnotes: 'never' | 'inline';
-  citations: 'skip' | 'author-year';
+  citations: 'skip' | 'author-year' | 'full';
+  equations: 'off' | 'symbols';
+  /** Split quoted speech into its own utterances so it can be read in a second voice. */
+  splitDialogue: boolean;
   headingPauseMs: number;
   sectionPauseMs: number;
   paragraphPauseMs: number;
@@ -67,9 +70,19 @@ export interface Utterance {
   /** Text sent to the voice (pronunciations and citation handling applied). */
   spoken: string;
   pauseAfterMs: number;
+  /** Set for quoted speech when dialogue splitting is on. */
+  role?: 'dialogue';
 }
 
 export interface PronunciationEntry {
   term: string;
   say: string;
+}
+
+/** Person-level choices that sit on top of a reading mode. Anything left out follows the mode. */
+export interface NarrationOverrides {
+  citations?: NarrationOptions['citations'];
+  equations?: NarrationOptions['equations'];
+  tables?: NarrationOptions['tables'];
+  dialogue?: boolean;
 }

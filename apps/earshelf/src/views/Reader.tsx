@@ -4,7 +4,7 @@ import { ArrowLeft, Bookmark, Highlighter, List, Pause, Play, Search, SlidersHor
 import { searchDocument } from '@wells/core';
 import type { ReadingMode, Utterance, CleanupOptions } from '@wells/core';
 import { db, queueSync, uid } from '../db';
-import { MODE_LABELS, loadIntoPlayer, player, useDocStyle, useHasFeature, usePlayer, useUtterances } from '../hooks';
+import { MODE_LABELS, loadIntoPlayer, player, useDocStyle, useHasFeature, useNarration, usePlayer, useUtterances } from '../hooks';
 import { useUser } from '../auth';
 import { ApiError, apiPost } from '../supabase';
 import { ensureDocumentSynced } from '../sync';
@@ -24,6 +24,7 @@ export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBl
   const doc = useLiveQuery(() => db.docs.get(docId), [docId]);
   const utterances = useUtterances(doc);
   const style = useDocStyle(docId);
+  const narr = useNarration();
   const annotations = useLiveQuery(() => db.annotations.where('docId').equals(docId).filter((a) => !a.deletedAt).toArray(), [docId], []);
   const ps = usePlayer();
   const [panel, setPanel] = useState<Panel>(null);
@@ -47,8 +48,8 @@ export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBl
 
   useEffect(() => { if (doc && utterances.length) void loadIntoPlayer(doc, utterances); }, [doc, utterances]);
   // Tell the natural-voice layer what is loaded. Keyed on updatedAt, not the whole record, because progress writes touch the record every second.
-  useEffect(() => { if (doc && utterances.length) void registerDocument(doc, utterances, style.pause); // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc?.id, doc?.updatedAt, utterances, style.pause]);
+  useEffect(() => { if (doc && utterances.length) void registerDocument(doc, utterances, style.pause, narr); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc?.id, doc?.updatedAt, utterances, style.pause, narr]);
   // A well's voice style sets the pace for documents opened from it.
   useEffect(() => { player.setRate(style.rate); }, [style.rate, docId]);
   useEffect(() => { focused.current = false; }, [docId, focusBlockId]);
@@ -241,7 +242,7 @@ export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBl
             const Tag = (`h${Math.min(4, Math.max(2, (b.level ?? 2) + 1))}`) as 'h2' | 'h3' | 'h4';
             return <Tag key={b.id} data-b={b.id} data-u={i} className={i !== undefined ? sentenceClass(i) : ''} onClick={() => i !== undefined && setSelected(i)}>{b.text}</Tag>;
           }
-          const cls = b.type === 'quote' ? 'quote' : b.type === 'list_item' ? 'li' : b.type === 'caption' || b.type === 'footnote' ? 'caption' : 'para';
+          const cls = b.type === 'equation' ? 'equation' : b.type === 'quote' ? 'quote' : b.type === 'list_item' ? 'li' : b.type === 'caption' || b.type === 'footnote' ? 'caption' : 'para';
           const notes = (us ?? []).flatMap(({ i }) => annFor(i).filter((a) => a.kind === 'note'));
           return (
             <div key={b.id} data-b={b.id} className={`${cls} ${skipped ? 'skipped' : ''}`}>

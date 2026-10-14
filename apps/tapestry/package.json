@@ -1,0 +1,10 @@
+{
+  "name": "@wells/tapestry", "private": true, "version": "0.1.0", "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview", "typecheck": "tsc --noEmit" },
+  "dependencies": {
+    "@fontsource-variable/instrument-sans": "^5.1.0", "@fontsource-variable/newsreader": "^5.1.0", "@supabase/supabase-js": "^2.45.4",
+    "@wells/activity": "*", "@wells/auth": "*", "@wells/offline": "*", "@wells/scripture": "*", "@wells/ui": "*",
+    "dexie": "^4.0.9", "dexie-react-hooks": "^1.1.7", "react": "^18.3.1", "react-dom": "^18.3.1"
+  },
+  "devDependencies": { "@types/react": "^18.3.12", "@types/react-dom": "^18.3.1", "@vitejs/plugin-react": "^4.3.3", "vite": "^5.4.10", "vite-plugin-pwa": "^0.20.5" }
+}

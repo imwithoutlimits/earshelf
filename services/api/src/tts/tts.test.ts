@@ -112,3 +112,14 @@ test('OpenAI-style engine: pcm request, Kokoro voice discovery with fallback', a
   assert.deepEqual((await offline.listVoices()).map((v) => v.id), ['af_heart']);
   assert.equal(makeOpenAiLike({ ...cfg, base: '' }).available(), false);
 });
+
+test('renderChunk reads quoted speech in the dialogue voice and everything else in the narrator voice', async () => {
+  const used: Array<[string, string]> = [];
+  const eng: TtsEngine = { ...fake, synthesize: async (text, voice) => { used.push([text, voice]); return { samples: new Int16Array(240), sampleRate: RATE }; } };
+  const utts = [{ ...u(0, '“Hi,”', 0), role: 'dialogue' as const }, u(1, 'she said.', 0), { ...u(2, '“Bye.”', 0), role: 'dialogue' as const }];
+  await renderChunk(utts, 0, eng, 'narrator', 1, 'speaker');
+  assert.deepEqual(used.sort(), [['“Bye.”', 'speaker'], ['“Hi,”', 'speaker'], ['she said.', 'narrator']].sort());
+  used.length = 0;
+  await renderChunk(utts, 0, eng, 'narrator', 1); // no dialogue voice chosen: one voice for everything
+  assert.ok(used.every(([, v]) => v === 'narrator'));
+});
