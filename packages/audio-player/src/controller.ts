@@ -20,6 +20,8 @@ export interface PlayerState {
   sleep: SleepSetting | null;
   error: string | null;
   remainingSeconds: number;
+  /** Estimated length of the whole document at the current speed, so a screen can show time played as well as time left. */
+  totalSeconds: number;
 }
 
 export interface TrackMeta {
@@ -67,7 +69,7 @@ export class PlayerController {
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
   getSnapshot = () => this.snap;
 
-  private build(p: Partial<PlayerState> & Pick<PlayerState, 'status' | 'rate' | 'volume' | 'voiceId' | 'error'>): PlayerState {
+  private build(p: Pick<PlayerState, 'status' | 'rate' | 'volume' | 'voiceId' | 'error'>): PlayerState {
     const u = this.queue.current ?? null;
     return {
       documentId: this.meta?.documentId ?? null,
@@ -79,11 +81,15 @@ export class PlayerController {
       engine: this.engine.kind,
       sleep: this.sleepTimer.setting,
       remainingSeconds: this.queue.remainingSeconds(p.rate),
+      totalSeconds: this.queue.totalSeconds(p.rate),
       ...p,
     };
   }
-  private set(p: Partial<PlayerState>) {
-    this.snap = this.build({ ...this.snap, ...p });
+  private set(p: Partial<Pick<PlayerState, 'status' | 'rate' | 'volume' | 'voiceId' | 'error'>>) {
+    // Carry over only the settings a caller can change. Everything else (document, index, length, utterance, time left) is read fresh from the queue,
+    // so a stale copy of the previous snapshot must not be spread over it.
+    const { status, rate, volume, voiceId, error } = { ...this.snap, ...p };
+    this.snap = this.build({ status, rate, volume, voiceId, error });
     this.listeners.forEach((l) => l());
     this.syncMediaSession();
   }

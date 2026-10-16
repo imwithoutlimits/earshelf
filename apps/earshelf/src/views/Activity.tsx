@@ -1,7 +1,10 @@
+import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Bookmark, Download, Highlighter, StickyNote, Trash2 } from 'lucide-react';
-import { toCsv, toMarkdown, toReadwiseCsv, type ExportItem } from '@wells/core';
+import { mergeDays, minutesOf, secondsBetween, toCsv, toMarkdown, toReadwiseCsv, type ExportItem } from '@wells/core';
+import { DEFAULT_TARGET_DAYS, addDays, listenedDays, localDay, longestStreak, streakInfo, weekStart, weeklyProgress } from '@wells/activity';
 import { db, queueSync } from '../db';
+import { useSetting } from '../hooks';
 import { DocCard, useLibrary } from './Home';
 import { DueCard } from './Review';
 
@@ -22,6 +25,76 @@ async function exportAnnotations(format: 'md' | 'csv' | 'readwise') {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const minutesText = (sec: number) => { const m = minutesOf(sec); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
+
+/** Streak, this week and the weekly goal, worked out from the time listened on this device. */
+function Stats() {
+  const local = useLiveQuery(() => db.listening.toArray(), [], []);
+  const remote = useLiveQuery(() => db.remoteDays.toArray(), [], []);
+  // Time from every device the person listens on, plus whatever this device has not uploaded yet.
+  const rows = useMemo(() => mergeDays(local, remote), [local, remote]);
+  const finished = useLiveQuery(() => db.progress.filter((p) => p.completed).toArray(), [], []);
+  const [target, setTarget] = useSetting<number>('weeklyTarget', DEFAULT_TARGET_DAYS);
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const today = localDay(Date.now(), tz);
+  const s = useMemo(() => {
+    const days = listenedDays(rows);
+    const thread = streakInfo(days, today);
+    const start = weekStart(today);
+    const week = Array.from({ length: 7 }, (_, i) => { const d = addDays(start, i); return { day: d, seconds: secondsBetween(rows, d, d) }; });
+    return {
+      thread, longest: Math.max(longestStreak(days), thread.count), weekly: weeklyProgress(days, today, target), week,
+      weekSeconds: week.reduce((n, d) => n + d.seconds, 0), todaySeconds: secondsBetween(rows, today, today), max: Math.max(60, ...week.map((d) => d.seconds)),
+      finishedWeek: finished.filter((p) => localDay(p.updatedAt, tz) >= start).length,
+    };
+  }, [rows, finished, today, target, tz]);
+  const { thread, weekly } = s;
+  const line = thread.todayDone ? 'You have listened today. Nice work.' : thread.count > 0 ? 'Listen for a minute today to keep your streak going.' : 'Listen for a minute today to start a streak.';
+  return (
+    <>
+      <section className="streak" aria-label="Listening streak">
+        <p className="streak-num" aria-label={`${thread.count} day streak`}>{thread.count}</p>
+        <div className="streak-text">
+          <h2 className="streak-label">day streak</h2>
+          <p>{line}</p>
+          <p className="hint">A day counts after one minute of listening. One rest day a week keeps your streak.</p>
+        </div>
+      </section>
+
+      <ul className="stat-tiles">
+        <li><span className="stat-num">{minutesText(s.todaySeconds)}</span><span className="stat-label">Today</span></li>
+        <li><span className="stat-num">{minutesText(s.weekSeconds)}</span><span className="stat-label">This week</span></li>
+        <li><span className="stat-num">{s.finishedWeek}</span><span className="stat-label">Finished this week</span></li>
+        <li><span className="stat-num">{s.longest}</span><span className="stat-label">Longest streak</span></li>
+      </ul>
+
+      <section className="week" aria-label="This week">
+        <div className="week-head">
+          <h2 className="sub">This week</h2>
+          <label className="goal">Goal
+            <select value={target} onChange={(e) => setTarget(Number(e.target.value))} aria-label="Days to listen each week">
+              {[1, 2, 3, 4, 5, 6, 7].map((n) => <option key={n} value={n}>{n} {n === 1 ? 'day' : 'days'} a week</option>)}
+            </select>
+          </label>
+        </div>
+        <ul className="week-bars">
+          {s.week.map((d, i) => {
+            const isToday = d.day === today;
+            return (
+              <li key={d.day} className={[isToday ? 'today' : '', d.day > today ? 'future' : '', weekly.doneDays[i] ? 'done' : ''].filter(Boolean).join(' ')} aria-label={`${DAY_NAMES[i]}: ${d.seconds ? minutesText(d.seconds) : 'no listening'}${weekly.doneDays[i] ? ', counted' : ''}`}>
+                <span className="bar-col" aria-hidden><span style={{ height: `${Math.max(d.seconds ? 8 : 3, (d.seconds / s.max) * 100)}%` }} /></span>
+                <span className="bar-day" aria-hidden>{DAY_NAMES[i][0]}</span>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="hint" role="status">{weekly.met ? `Goal reached: ${weekly.done} of ${target} days.` : `${weekly.done} of ${target} days so far.${weekly.reachable ? '' : ' A fresh week starts on Monday.'}`}</p>
+      </section>
+    </>
+  );
+}
+
 export function Activity({ onOpen, onReview }: { onOpen: (docId: string, blockId?: string) => void; onReview: () => void }) {
   const lib = useLibrary();
   const anns = useLiveQuery(() => db.annotations.filter((a) => !a.deletedAt).reverse().sortBy('createdAt').then((a) => a.reverse()), [], []);
@@ -31,6 +104,7 @@ export function Activity({ onOpen, onReview }: { onOpen: (docId: string, blockId
   return (
     <section className="page">
       <header className="page-head"><h1>Activity</h1></header>
+      <Stats />
       <DueCard onReview={onReview} />
       <h2 className="sub">Recently played</h2>
       {recent.length === 0 ? <div className="empty"><p>Documents you listen to will show up here.</p></div> : (

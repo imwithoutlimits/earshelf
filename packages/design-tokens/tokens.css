@@ -14,16 +14,44 @@
   --font-ui: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-reading: "Literata Variable", "Literata", "Source Serif 4", Georgia, serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-serif: "Literata Variable", "Literata", "Source Serif 4", Georgia, serif;
+  --font-display: var(--font-reading);
+  --display-weight: 600;
+  --display-tracking: -0.01em;
+  --display-transform: none;
+  --color-on-primary: #ffffff;
+  --color-on-accent: #1f1a14;
+  --nav-active-bg: var(--color-surface-muted);
+  --nav-active-fg: var(--color-primary);
+  --reading-dim: var(--color-text);
   --radius-card: 12px;
   --radius-panel: 16px;
   --radius-pill: 999px;
   --shadow-raised: 0 1px 2px rgba(38, 37, 34, 0.06), 0 4px 12px rgba(38, 37, 34, 0.05);
 }
 
+/* earshelf has three looks. Light is cream and ink with a red accent ("jacket"); dark is black with yellow ("console");
+   blue is cobalt with cream ("poster"). Change colours here, not in components. */
 [data-app="earshelf"] {
-  --color-primary: #315f72;
-  --color-primary-hover: #264b5b;
-  --color-accent: #c8874d;
+  --color-background: #ecece7;
+  --color-surface: #f6f6f2;
+  --color-surface-muted: #e0e0d9;
+  --color-text: #1b1b19;
+  --color-text-muted: #5f5f58;
+  --color-border: #cfcfc6;
+  --color-primary: #1b1b19;
+  --color-primary-hover: #35352f;
+  --color-on-primary: #f6f6f2;
+  --color-accent: #c42f14;
+  --color-on-accent: #ffffff;
+  --color-success: #4d7a5a;
+  --color-warning: #a97814;
+  --color-danger: #b3261e;
+  --nav-active-bg: #1b1b19;
+  --nav-active-fg: #f6f6f2;
+  --reading-dim: #5f5f58;
+  --font-display: var(--font-serif);
+  --shadow-raised: 0 1px 2px rgba(27, 27, 25, 0.08), 0 6px 16px rgba(27, 27, 25, 0.08);
 }
 
 [data-app="tapestry"] {
@@ -33,29 +61,84 @@
   --color-background: #fbf8f2;
 }
 
+/* Before the app has chosen a look, follow the device. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --color-background: #1a1917;
-    --color-surface: #23211e;
-    --color-surface-muted: #2c2925;
-    --color-text: #ece8df;
-    --color-text-muted: #a39d92;
-    --color-border: #3a3631;
-    --color-primary: #6fa3b8;
-    --color-primary-hover: #8bb7c9;
-    --color-accent: #d9a06a;
+  :root[data-app="earshelf"]:not([data-theme]) {
+    color-scheme: dark;
+    --color-background: #121212;
+    --color-surface: #1b1b1a;
+    --color-surface-muted: #262625;
+    --color-text: #f1eee6;
+    --color-text-muted: #a09c91;
+    --color-border: #2f2f2d;
+    --color-primary: #ffc933;
+    --color-primary-hover: #ffd75e;
+    --color-on-primary: #121212;
+    --color-accent: #ffc933;
+    --color-on-accent: #121212;
+    --color-success: #7fc79a;
+    --color-warning: #ffc933;
+    --color-danger: #ff8b7e;
+    --nav-active-bg: #3a3a37;
+    --nav-active-fg: #f1eee6;
+    --reading-dim: #a09c91;
+    --font-display: "Barlow Condensed", "Arial Narrow", var(--font-ui);
+    --display-weight: 700;
+    --display-tracking: 0.02em;
+    --display-transform: uppercase;
+    --shadow-raised: 0 2px 12px rgba(0, 0, 0, 0.55);
   }
 }
-:root[data-theme="dark"] {
-  --color-background: #1a1917;
-  --color-surface: #23211e;
-  --color-surface-muted: #2c2925;
-  --color-text: #ece8df;
-  --color-text-muted: #a39d92;
-  --color-border: #3a3631;
-  --color-primary: #6fa3b8;
-  --color-primary-hover: #8bb7c9;
-  --color-accent: #d9a06a;
+:root[data-app="earshelf"][data-theme="dark"] {
+  color-scheme: dark;
+  --color-background: #121212;
+  --color-surface: #1b1b1a;
+  --color-surface-muted: #262625;
+  --color-text: #f1eee6;
+  --color-text-muted: #a09c91;
+  --color-border: #2f2f2d;
+  --color-primary: #ffc933;
+  --color-primary-hover: #ffd75e;
+  --color-on-primary: #121212;
+  --color-accent: #ffc933;
+  --color-on-accent: #121212;
+  --color-success: #7fc79a;
+  --color-warning: #ffc933;
+  --color-danger: #ff8b7e;
+  --nav-active-bg: #3a3a37;
+  --nav-active-fg: #f1eee6;
+  --reading-dim: #a09c91;
+  --font-display: "Barlow Condensed", "Arial Narrow", var(--font-ui);
+  --display-weight: 700;
+  --display-tracking: 0.02em;
+  --display-transform: uppercase;
+  --shadow-raised: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+:root[data-app="earshelf"][data-theme="blue"] {
+  color-scheme: dark;
+  --color-background: #0b34b5;
+  --color-surface: #1240c4;
+  --color-surface-muted: #1c4ad0;
+  --color-text: #f4f2ea;
+  --color-text-muted: #b4c0ee;
+  --color-border: #4666d0;
+  --color-primary: #f4f2ea;
+  --color-primary-hover: #ffffff;
+  --color-on-primary: #0b34b5;
+  --color-accent: #ffc72c;
+  --color-on-accent: #10205f;
+  --color-success: #8fe0a8;
+  --color-warning: #ffc72c;
+  --color-danger: #ffb4a6;
+  --nav-active-bg: #f4f2ea;
+  --nav-active-fg: #0b34b5;
+  --reading-dim: #b4c0ee;
+  --font-ui: "Outfit Variable", "Outfit", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-reading: "Outfit Variable", "Outfit", system-ui, sans-serif;
+  --font-display: "Outfit Variable", "Outfit", system-ui, sans-serif;
+  --display-weight: 600;
+  --display-tracking: -0.035em;
+  --shadow-raised: 0 8px 22px rgba(4, 18, 88, 0.5);
 }
 
 @media (prefers-reduced-motion: reduce) {

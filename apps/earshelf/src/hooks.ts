@@ -5,6 +5,8 @@ import { buildUtterances, pickWellStyle, sanitizeOverrides, scaledNarration } fr
 import type { NarrationOverrides } from '@wells/core';
 import type { ReadingMode, Utterance } from '@wells/core';
 import { hasFeature, type Feature, type Plan } from '@wells/billing/src/plans.ts';
+import { localDay } from '@wells/activity';
+import { syncListeningSoon } from './activitySync';
 import { db, queueSync, setSetting, type DocRecord } from './db';
 
 export const player = new PlayerController();
@@ -127,9 +129,71 @@ export function useVoices(lang = 'en'): SpeechSynthesisVoice[] {
   return useMemo(() => voices.filter((v) => v.lang.toLowerCase().startsWith(lang.slice(0, 2).toLowerCase())).sort((a, b) => Number(b.localService) - Number(a.localService) || a.name.localeCompare(b.name)), [voices, lang]);
 }
 
+/** 2:11:48 style clock for a number of seconds (1:05 under an hour). */
+export function formatClock(seconds: number): string {
+  const t = Math.max(0, Math.round(seconds));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), r = t % 60;
+  const two = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${two(m)}:${two(r)}` : `${m}:${two(r)}`;
+}
+
 export function formatDuration(seconds: number): string {
   const m = Math.round(seconds / 60);
   if (m < 1) return 'Under a minute';
   if (m < 60) return `${m} min`;
   return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+/** The look the person chose. "system" follows the device's light or dark setting. */
+export type ThemeSetting = 'system' | 'light' | 'dark' | 'blue';
+export type Look = 'light' | 'dark' | 'blue';
+export const THEMES: Array<{ id: ThemeSetting; label: string }> = [
+  { id: 'system', label: 'Match my device' }, { id: 'light', label: 'Light' }, { id: 'dark', label: 'Dark' }, { id: 'blue', label: 'Blue' },
+];
+export const THEME_COLOR: Record<Look, string> = { light: '#ecece7', dark: '#121212', blue: '#0b34b5' };
+
+/** The look actually on screen, so a screen can lay itself out differently for light, dark and blue. */
+export function useLook(): Look {
+  const [theme] = useSetting<ThemeSetting>('theme', 'system');
+  const [dark, setDark] = useState(() => typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => {
+    if (typeof matchMedia === 'undefined') return;
+    const m = matchMedia('(prefers-color-scheme: dark)');
+    const on = () => setDark(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return theme === 'system' ? (dark ? 'dark' : 'light') : theme;
+}
+
+export type HomeLayout = 'shelf' | 'grid' | 'list';
+
+/** Adds up the time spent actually listening, one local day at a time, and saves it every few seconds. Nothing leaves the device. */
+export function startListeningMeter(): () => void {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  let pending = 0;
+  let last = Date.now();
+  const flush = async () => {
+    const whole = Math.floor(pending);
+    if (whole < 1) return;
+    pending -= whole;
+    const day = localDay(Date.now(), tz);
+    await db.transaction('rw', db.listening, async () => {
+      const row = await db.listening.get(day);
+      await db.listening.put({ day, seconds: (row?.seconds ?? 0) + whole, updatedAt: Date.now(), pushed: row?.pushed });
+    });
+    syncListeningSoon();
+  };
+  const tick = () => {
+    const now = Date.now();
+    // A tab that was frozen in the background must not count the gap as listening.
+    if (player.getSnapshot().status === 'playing') pending += Math.min(2, (now - last) / 1000);
+    last = now;
+    if (pending >= 10) void flush();
+  };
+  const timer = setInterval(tick, 1000);
+  const onHide = () => { if (document.visibilityState === 'hidden') { tick(); void flush(); } };
+  document.addEventListener('visibilitychange', onHide);
+  window.addEventListener('pagehide', onHide);
+  return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onHide); void flush(); };
 }

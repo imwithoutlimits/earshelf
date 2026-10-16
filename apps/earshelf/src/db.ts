@@ -29,6 +29,10 @@ export interface AnnotationRecord {
   blockId: string; utteranceIndex: number; text: string; body?: string;
   createdAt: number; updatedAt: number; deletedAt?: number;
 }
+/** Time spent listening on one local day. Kept on this device only; it feeds the Activity streak. */
+export interface ListeningRecord { day: string; seconds: number; updatedAt: number; /** the part of `seconds` the server already has */ pushed?: number }
+/** What the server holds for each day, across all of the person's devices. A cache for the Activity screen. */
+export interface RemoteDayRecord { day: string; seconds: number }
 export interface PronRecord { id: string; term: string; say: string; docId?: string }
 /** Pending changes to push to Supabase once sync is wired. Local writes never wait on the network. */
 export interface OutboxRecord { id?: number; table: string; recordId: string; op: 'put' | 'delete'; createdAt: number }
@@ -50,6 +54,8 @@ class EarshelfDb extends Dexie {
   settings!: Table<SettingRecord, string>;
   audio!: Table<AudioRecord, string>;
   cards!: Table<CardRecord, string>;
+  listening!: Table<ListeningRecord, string>;
+  remoteDays!: Table<RemoteDayRecord, string>;
   constructor() {
     super('earshelf');
     this.version(1).stores({
@@ -65,6 +71,7 @@ class EarshelfDb extends Dexie {
     });
     this.version(2).stores({ audio: 'key, docId' });
     this.version(3).stores({ cards: 'id, docId, dueAt' });
+    this.version(4).stores({ listening: 'day', remoteDays: 'day' });
   }
 }
 export const db = new EarshelfDb();
