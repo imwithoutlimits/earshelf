@@ -18,6 +18,7 @@ import { indexDocument, makeEmbedder, realSearchRpc, replaceChunks, semanticSear
 import { jobStatus, startExport } from './exportJob.ts';
 import { report } from './monitor.ts';
 import { tapestryRoutes } from './tapestry/routes.ts';
+import { earshelfActivityRoutes } from './earshelf/activity.ts';
 
 type Json = Record<string, unknown>;
 interface Ctx { user: { id: string }; body: Json; query: URLSearchParams; plan: () => Promise<Plan> }
@@ -189,6 +190,7 @@ const routes: Record<string, Route> = {
 };
 
 Object.assign(routes, tapestryRoutes({ limit, bad }));
+Object.assign(routes, earshelfActivityRoutes({ limit, bad }));
 
 const tokenCache = new Map<string, { id: string; exp: number }>();
 async function authenticate(req: IncomingMessage): Promise<{ id: string }> {
