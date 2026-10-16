@@ -18,6 +18,8 @@ Status of every entry is **not yet reviewed**. Licenses below are what each proj
 | linkedom | ISC | |
 | FFmpeg (installed in the server image) | LGPL/GPL depending on build | Run as a separate program to encode MP3. Check the Debian build's terms if you redistribute the image. |
 | Inter, Literata (via @fontsource-variable) | SIL OFL 1.1 | Attribution and font-file terms apply. |
+| Outfit (via @fontsource-variable/outfit) | SIL OFL 1.1 | Typeface of the blue look. Attribution and font-file terms apply. The Fontsource package is MIT. |
+| Barlow Condensed (via @fontsource/barlow-condensed, weights 600 and 700) | SIL OFL 1.1 | Headings and numerals of the dark look. Attribution and font-file terms apply. The Fontsource package is MIT. |
 
 ## TTS engines and voices
 
