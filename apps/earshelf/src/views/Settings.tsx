@@ -4,7 +4,7 @@ import { Lock, Trash2 } from 'lucide-react';
 import type { ReadingMode } from '@wells/core';
 import { minimumPlanFor } from '@wells/billing/src/plans.ts';
 import { db, deleteAllUserContent, uid } from '../db';
-import { MODE_LABELS, VOICE_PROFILES, player, useHasFeature, usePlan, useSetting } from '../hooks';
+import { MODE_LABELS, VOICE_PROFILES, player, useHasFeature, usePlan, useSetting, THEMES, type ThemeSetting } from '../hooks';
 import { NaturalVoice } from '../components/NaturalVoice';
 import { useUser } from '../auth';
 import { ApiError, apiPost, apiUrl, supabase } from '../supabase';
@@ -20,7 +20,7 @@ export function Settings() {
   const sync = useSyncStatus();
   const pending = useLiveQuery(() => db.outbox.count(), [], 0);
   const canPron = useHasFeature('pronunciation');
-  const [theme, setTheme] = useSetting<'system' | 'light' | 'dark'>('theme', 'system');
+  const [theme, setTheme] = useSetting<ThemeSetting>('theme', 'system');
   const [profile, setProfile] = useSetting('voiceProfile', 'calm-nonfiction');
   const [rate, setRate] = useSetting('rate', 1);
   const [pause, setPause] = useSetting('pauseScale', 1);
@@ -156,11 +156,18 @@ export function Settings() {
 
       <div className="card stack">
         <h2 className="sub">Appearance</h2>
-        <label className="field">Theme
-          <select value={theme} onChange={(e) => setTheme(e.target.value as 'system' | 'light' | 'dark')}>
-            <option value="system">Match my device</option><option value="light">Light</option><option value="dark">Dark</option>
-          </select>
-        </label>
+        <fieldset className="field theme-field">
+          <legend>Theme</legend>
+          <div className="theme-picks">
+            {THEMES.map((t) => (
+              <label key={t.id} className={`theme-pick pick-${t.id}${theme === t.id ? ' on' : ''}`}>
+                <input type="radio" name="theme" value={t.id} checked={theme === t.id} onChange={() => setTheme(t.id)} />
+                <span className="swatch" aria-hidden />
+                <span>{t.label}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </div>
 
       <div className="card stack">

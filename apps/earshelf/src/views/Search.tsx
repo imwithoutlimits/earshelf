@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Search as SearchIcon } from 'lucide-react';
+import { ArrowLeft, Search as SearchIcon } from 'lucide-react';
 import { searchDocument } from '@wells/core';
 import { hasFeature } from '@wells/billing/src/plans.ts';
 import { db } from '../db';
@@ -10,7 +10,7 @@ import { useCapabilities } from '../serverVoice';
 import { searchMeaning, type MeaningHit } from '../semantic';
 import { ApiError } from '../supabase';
 
-export function Search({ onOpen }: { onOpen: (docId: string, blockId?: string) => void }) {
+export function Search({ onOpen, onBack }: { onOpen: (docId: string, blockId?: string) => void; onBack: () => void }) {
   const user = useUser();
   const plan = usePlan();
   const caps = useCapabilities(!!user);
@@ -55,10 +55,10 @@ export function Search({ onOpen }: { onOpen: (docId: string, blockId?: string) =
 
   return (
     <section className="page">
-      <header className="page-head"><h1>Search</h1></header>
+      <header className="page-head"><button className="icon-btn" onClick={onBack} aria-label="Close search"><ArrowLeft size={22} /></button><h1>Search</h1></header>
       <div className="search-box">
         <SearchIcon size={20} aria-hidden />
-        <input className="text-input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={byMeaning ? 'Describe what you are looking for' : 'Search titles and text across your library'} aria-label="Search your library" />
+        <input className="text-input" type="search" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder={byMeaning ? 'Describe what you are looking for' : 'Search titles and text across your library'} aria-label="Search your library" />
       </div>
       {canMeaning && <label className="check-row"><input type="checkbox" checked={byMeaning} onChange={(e) => setByMeaning(e.target.checked)} /> Search by meaning</label>}
 

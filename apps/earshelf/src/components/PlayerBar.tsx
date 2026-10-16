@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { ChevronDown, Bookmark, Moon, Pause, Play, RotateCcw, SkipBack, SkipForward, Volume2, FileText, Rewind, FastForward, SkipForward as Skip } from 'lucide-react';
-import { formatDuration, player, useSetting, usePlayer, useVoices } from '../hooks';
+import { ChevronDown, ChevronUp, Bookmark, Moon, Pause, Play, RotateCcw, SkipBack, SkipForward, Volume2, FileText, Rewind, FastForward, SkipForward as Skip } from 'lucide-react';
+import { formatClock as clock, formatDuration, player, useSetting, usePlayer, useVoices } from '../hooks';
+import type { CSSProperties } from 'react';
 import type { SleepSetting } from '@wells/audio-player';
 import { db, queueSync, uid } from '../db';
 import { Sheet } from './Sheet';
@@ -16,9 +16,10 @@ const SLEEP: Array<{ label: string; value: SleepSetting | null }> = [
 ];
 const sleepLabel = (s: SleepSetting | null) => SLEEP.find((o) => JSON.stringify(o.value) === JSON.stringify(s))?.label ?? 'Off';
 
-export function PlayerBar({ onOpenReader }: { onOpenReader: (docId: string) => void }) {
+/** The mini player sits above the tabs on library screens. Inside the reader it becomes the full transport dock. The full player sheet is opened from either. */
+export function PlayerBar({ onOpenReader, reading, open, onOpenChange }: { onOpenReader: (docId: string) => void; reading: boolean; open: boolean; onOpenChange: (open: boolean) => void }) {
   const s = usePlayer();
-  const [open, setOpen] = useState(false);
+  const setOpen = onOpenChange;
   const voices = useVoices();
   const [voiceURI, setVoiceURI] = useSetting<string | null>('voiceURI', null);
   const [, setRate] = useSetting('rate', 1);
@@ -33,8 +34,35 @@ export function PlayerBar({ onOpenReader }: { onOpenReader: (docId: string) => v
     await queueSync('bookmarks', id);
   };
 
+  const cycleSpeed = () => {
+    const at = SPEEDS.findIndex((r) => Math.abs(r - s.rate) < 0.01);
+    const r = SPEEDS[(at + 1) % SPEEDS.length];
+    player.setRate(r); setRate(r);
+  };
+  const elapsed = Math.max(0, s.totalSeconds - s.remainingSeconds);
+
   return (
     <>
+      {reading ? (
+        <div className="dock" role="region" aria-label="Player">
+          <input type="range" className="scrubber dock-scrub" min={0} max={Math.max(0, s.length - 1)} value={s.index}
+            onChange={(e) => player.seekTo(Number(e.target.value))} aria-label="Position in document"
+            aria-valuetext={`${formatDuration(s.remainingSeconds)} left`}
+            style={{ '--pos': `${(s.index / Math.max(1, s.length - 1)) * 100}%` } as CSSProperties} />
+          <div className="dock-times" aria-hidden><span>{clock(elapsed)}</span><span>−{clock(s.remainingSeconds)}</span></div>
+          <div className="dock-controls">
+            <button className="play-btn" onClick={() => player.toggle()} aria-label={playing ? 'Pause' : 'Play'} aria-pressed={playing}>
+              {playing ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" />}
+            </button>
+            <button className="tx-btn" onClick={() => player.back(15)} aria-label="Jump back 15 seconds"><span aria-hidden>−15s</span></button>
+            <button className="tx-btn" onClick={() => player.forward(30)} aria-label="Jump ahead 30 seconds"><span aria-hidden>+30s</span></button>
+            <button className="speed-pill" onClick={cycleSpeed} aria-label={`Speed ${s.rate} times. Tap to change`}><span aria-hidden>{s.rate}×</span></button>
+            <button className="icon-btn" onClick={() => void addBookmark()} aria-label="Bookmark this sentence"><Bookmark size={22} /></button>
+            <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Open full player"><ChevronUp size={22} /></button>
+          </div>
+          {s.error && <p role="alert" className="error-text dock-error">{s.error}</p>}
+        </div>
+      ) : (
       <div className="miniplayer" role="region" aria-label="Player">
         <button className="mini-main" onClick={() => setOpen(true)} aria-label="Open full player">
           <span className="mini-title">{s.title}</span>
@@ -46,6 +74,7 @@ export function PlayerBar({ onOpenReader }: { onOpenReader: (docId: string) => v
         </button>
         <div className="progress-line" style={{ width: `${(s.index / Math.max(1, s.length - 1)) * 100}%` }} aria-hidden />
       </div>
+      )}
 
       {open && (
         <Sheet onClose={() => setOpen(false)} label="Full player" className="full-player">

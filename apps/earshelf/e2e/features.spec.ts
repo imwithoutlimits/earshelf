@@ -19,6 +19,6 @@ test('a well can be given its own voice style', async ({ page }) => {
 
 test('meaning search is not offered when signed out', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Search' }).last().click();
+  await page.getByRole('button', { name: 'Search' }).click(); // the icon on the library screen; Search is not a tab
   await expect(page.getByLabel('Search by meaning')).toHaveCount(0);
 });

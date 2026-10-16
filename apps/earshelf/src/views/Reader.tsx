@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Bookmark, Highlighter, List, Pause, Play, Search, SlidersHorizontal, Sparkles, StickyNote, Volume2, X } from 'lucide-react';
-import { searchDocument } from '@wells/core';
+import { ArrowLeft, Bookmark, Highlighter, List, MoreVertical, Play, Search, SlidersHorizontal, Sparkles, StickyNote, Volume2, X } from 'lucide-react';
+import { chapterFor, chapterStarts, searchDocument } from '@wells/core';
+import { utteranceSeconds } from '@wells/audio-player';
 import type { ReadingMode, Utterance, CleanupOptions } from '@wells/core';
 import { db, queueSync, uid } from '../db';
-import { MODE_LABELS, loadIntoPlayer, player, useDocStyle, useHasFeature, useNarration, usePlayer, useUtterances } from '../hooks';
+import { MODE_LABELS, formatClock, loadIntoPlayer, player, useDocStyle, useHasFeature, useLook, useNarration, usePlayer, useUtterances } from '../hooks';
 import { useUser } from '../auth';
 import { ApiError, apiPost } from '../supabase';
 import { ensureDocumentSynced } from '../sync';
@@ -18,15 +19,16 @@ import { registerDocument } from '../serverVoice';
 interface Explanation { kind: 'table' | 'figure'; explanation: string; keyPoints: string[]; note?: string }
 const isFigure = (b: { type: string; text: string }) => b.type === 'caption' && /^(figure|fig\.)\s+\d+/i.test(b.text);
 
-type Panel = null | 'contents' | 'search' | 'settings' | 'ai';
+type Panel = null | 'contents' | 'search' | 'settings' | 'ai' | 'menu';
 
-export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBlockId?: string; onBack: () => void }) {
+export function Reader({ docId, focusBlockId, autoPlay, onBack, onOpenPlayer }: { docId: string; focusBlockId?: string; autoPlay?: boolean; onBack: () => void; onOpenPlayer: () => void }) {
   const doc = useLiveQuery(() => db.docs.get(docId), [docId]);
   const utterances = useUtterances(doc);
   const style = useDocStyle(docId);
   const narr = useNarration();
   const annotations = useLiveQuery(() => db.annotations.where('docId').equals(docId).filter((a) => !a.deletedAt).toArray(), [docId], []);
   const ps = usePlayer();
+  const look = useLook();
   const [panel, setPanel] = useState<Panel>(null);
   const [follow, setFollow] = useState(true);
   const [selected, setSelected] = useState<number | null>(null);
@@ -61,6 +63,42 @@ export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBl
     const m = new Map<string, Array<{ u: Utterance; i: number }>>();
     utterances.forEach((u, i) => { const a = m.get(u.blockId) ?? []; a.push({ u, i }); m.set(u.blockId, a); });
     return m;
+  }, [utterances]);
+
+  // Pressing Resume on the library screen opens the document and starts playing once it is loaded.
+  const started = useRef(false);
+  useEffect(() => { started.current = false; }, [docId]);
+  useEffect(() => {
+    if (!autoPlay || started.current || !mine || !utterances.length) return;
+    started.current = true;
+    if (ps.status !== 'playing' && ps.status !== 'loading') player.play();
+  }, [autoPlay, mine, utterances.length, ps.status]);
+
+  const chapter = useMemo(() => {
+    if (!doc) return null;
+    const sid = (mine ? ps.utterance?.sectionId : undefined) ?? utterances[0]?.sectionId ?? doc.parsed.sections[0]?.id;
+    return sid ? chapterFor(doc.parsed.sections, sid) : null;
+  }, [doc?.parsed, mine, ps.utterance?.sectionId, utterances]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chapterNo = useMemo(() => chapterStarts(doc?.parsed.sections ?? []), [doc?.parsed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Time at which each paragraph starts, shown in the margin of the dark look.
+  const startByBlock = useMemo(() => {
+    const m = new Map<string, number>();
+    let t = 0;
+    utterances.forEach((u) => { if (!m.has(u.blockId)) m.set(u.blockId, t); t += utteranceSeconds(u, ps.rate); });
+    return m;
+  }, [utterances, ps.rate]);
+  // The strip of bars in the dark look: one bar per slice of the document, taller where there is more to say. Tapping a bar jumps there.
+  const bars = useMemo(() => {
+    const len = utterances.length;
+    if (!len) return [] as Array<{ from: number; to: number; h: number }>;
+    const n = Math.min(72, len);
+    const raw = Array.from({ length: n }, (_, i) => {
+      const from = Math.floor((i * len) / n), to = Math.max(from + 1, Math.floor(((i + 1) * len) / n));
+      let w = 0; for (let k = from; k < to && k < len; k++) w += utteranceSeconds(utterances[k], 1);
+      return { from, to, w };
+    });
+    const max = Math.max(...raw.map((r) => r.w), 1);
+    return raw.map((r) => ({ from: r.from, to: r.to, h: 0.2 + 0.8 * (r.w / max) }));
   }, [utterances]);
 
   // Jump to a block requested from search or activity.
@@ -164,17 +202,34 @@ export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBl
   return (
     <article className="reader" onWheel={() => follow && setFollow(false)} onTouchMove={() => follow && setFollow(false)}>
       <header className="reader-head">
-        <button className="icon-btn" onClick={onBack} aria-label="Back to library"><ArrowLeft size={22} /></button>
-        <div className="reader-title">
-          <h1>{doc.title}</h1>
-          <p>{[doc.author, `${doc.durationMin} min`, MODE_LABELS[doc.readingMode].name].filter(Boolean).join(' · ')}</p>
+        <div className="reader-bar">
+          <button className="icon-btn" onClick={onBack} aria-label="Back to library"><ArrowLeft size={22} /></button>
+          <div className="reader-title">
+            <h1 className={look === 'light' ? '' : 'sr-only'}>{doc.title}</h1>
+            <p className="reader-label">{look === 'light' ? [doc.author, `${doc.durationMin} min`, MODE_LABELS[doc.readingMode].name].filter(Boolean).join(' · ') : chapter ? (look === 'dark' ? `Ch ${chapter.index} / ${chapter.total} · ${chapter.title}` : `Chapter ${chapter.index} · ${chapter.title}`) : [doc.author, `${doc.durationMin} min`].filter(Boolean).join(' · ')}</p>
+          </div>
+          <button className="icon-btn" onClick={() => setPanel(panel === 'contents' ? null : 'contents')} aria-label="Contents" aria-pressed={panel === 'contents'}><List size={22} /></button>
+          <button className="icon-btn" onClick={() => setPanel(panel === 'menu' || panel === 'ai' || panel === 'search' || panel === 'settings' ? null : 'menu')} aria-label="More options" aria-expanded={panel === 'menu'}><MoreVertical size={22} /></button>
         </div>
-        <button className="icon-btn" onClick={() => setPanel(panel === 'ai' ? null : 'ai')} aria-label="Summaries and questions" aria-pressed={panel === 'ai'}><Sparkles size={22} /></button>
-        <button className="icon-btn" onClick={() => setPanel(panel === 'contents' ? null : 'contents')} aria-label="Contents" aria-pressed={panel === 'contents'}><List size={22} /></button>
-        <button className="icon-btn" onClick={() => setPanel(panel === 'search' ? null : 'search')} aria-label="Search in document" aria-pressed={panel === 'search'}><Search size={22} /></button>
-        <button className="icon-btn" onClick={() => { setCleanup(doc.cleanup); setPanel(panel === 'settings' ? null : 'settings'); }} aria-label="Reading settings" aria-pressed={panel === 'settings'}><SlidersHorizontal size={22} /></button>
+        {look === 'dark' && bars.length > 0 && (
+          <div className="wave" aria-hidden>
+            {bars.map((b, i) => {
+              const at = mine ? ps.index : 0;
+              const cls = at >= b.to ? 'played' : at >= b.from ? 'current' : '';
+              return <button key={i} tabIndex={-1} className={`wave-bar ${cls}`} style={{ height: `${b.h * 100}%` }} onClick={() => { player.seekTo(b.from); setFollow(true); }} />;
+            })}
+          </div>
+        )}
       </header>
 
+      {panel === 'menu' && (
+        <nav className="panel menu-panel" aria-label="More options">
+          <button className="menu-item" onClick={() => setPanel('ai')}><Sparkles size={20} /> Summaries and questions</button>
+          <button className="menu-item" onClick={() => setPanel('search')}><Search size={20} /> Search in this document</button>
+          <button className="menu-item" onClick={() => { setCleanup(doc.cleanup); setPanel('settings'); }}><SlidersHorizontal size={20} /> Reading settings</button>
+          <button className="menu-item" onClick={() => { setPanel(null); onOpenPlayer(); }}><Volume2 size={20} /> Voice, speed and sleep timer</button>
+        </nav>
+      )}
       {panel === 'ai' && <div className="panel"><AiPanel doc={doc} onJump={(b) => jumpToBlock(b)} /></div>}
       {panel === 'contents' && (
         <nav className="panel" aria-label="Contents">
@@ -223,7 +278,7 @@ export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBl
         </div>
       )}
 
-      <div className="reading-body reading">
+      <div className={`reading-body reading${mine ? ' following' : ''}`}>
         {doc.parsed.blocks.map((b) => {
           const us = byBlock.get(b.id);
           const skipped = !us;
@@ -240,12 +295,13 @@ export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBl
           if (b.type === 'heading') {
             const i = us?.[0]?.i;
             const Tag = (`h${Math.min(4, Math.max(2, (b.level ?? 2) + 1))}`) as 'h2' | 'h3' | 'h4';
-            return <Tag key={b.id} data-b={b.id} data-u={i} className={i !== undefined ? sentenceClass(i) : ''} onClick={() => i !== undefined && setSelected(i)}>{b.text}</Tag>;
+            return <Tag key={b.id} data-b={b.id} data-u={i} className={i !== undefined ? sentenceClass(i) : ''} onClick={() => i !== undefined && setSelected(i)}>{chapterNo.has(b.id) && <span className="chap-no" aria-hidden>{chapterNo.get(b.id)}</span>}{b.text}</Tag>;
           }
           const cls = b.type === 'equation' ? 'equation' : b.type === 'quote' ? 'quote' : b.type === 'list_item' ? 'li' : b.type === 'caption' || b.type === 'footnote' ? 'caption' : 'para';
           const notes = (us ?? []).flatMap(({ i }) => annFor(i).filter((a) => a.kind === 'note'));
           return (
-            <div key={b.id} data-b={b.id} className={`${cls} ${skipped ? 'skipped' : ''}`}>
+            <div key={b.id} data-b={b.id} className={`${cls} ${skipped ? 'skipped' : ''} ${mine && ps.utterance?.blockId === b.id ? 'now-block' : ''}`}>
+              {look === 'dark' && startByBlock.has(b.id) && <span className="stamp" aria-hidden>{formatClock(startByBlock.get(b.id)!)}</span>}
               {b.type === 'list_item' && <span className="marker" aria-hidden>{b.ordered ? '•' : '–'}</span>}
               <p>
                 {us ? us.map(({ u, i }) => (
@@ -289,9 +345,6 @@ export function Reader({ docId, focusBlockId, onBack }: { docId: string; focusBl
         </div>
       )}
 
-      <button className="fab" onClick={() => { if (mine) { player.toggle(); setFollow(true); } }} aria-label={playing ? 'Pause' : 'Listen'} disabled={!mine || !utterances.length}>
-        {playing ? <Pause size={22} /> : <Play size={22} />}<span>{playing ? 'Pause' : 'Listen'}</span>
-      </button>
     </article>
   );
 }

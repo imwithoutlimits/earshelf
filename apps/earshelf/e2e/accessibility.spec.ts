@@ -7,8 +7,10 @@ const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 for (const [name, open] of [
   ['home', async (p: import('@playwright/test').Page) => { await p.goto('/'); }],
   ['wells', async (p: import('@playwright/test').Page) => { await p.goto('/'); await p.getByRole('button', { name: 'Wells' }).last().click(); }],
-  ['search', async (p: import('@playwright/test').Page) => { await p.goto('/'); await p.getByRole('button', { name: 'Search' }).last().click(); }],
-  ['profile', async (p: import('@playwright/test').Page) => { await p.goto('/'); await p.getByRole('button', { name: 'Profile' }).last().click(); }],
+  // Search is no longer a tab: it opens from the icon at the top right of the library.
+  ['search', async (p: import('@playwright/test').Page) => { await p.goto('/'); await p.getByRole('button', { name: 'Search' }).click(); }],
+  ['activity', async (p: import('@playwright/test').Page) => { await p.goto('/'); await p.getByRole('button', { name: 'Activity' }).last().click(); }],
+  ['profile', async (p: import('@playwright/test').Page) => { await p.goto('/'); await p.getByRole('button', { name: 'You', exact: true }).last().click(); }],
 ] as const) {
   test(`no detectable accessibility problems on ${name}`, async ({ page }) => {
     await open(page);

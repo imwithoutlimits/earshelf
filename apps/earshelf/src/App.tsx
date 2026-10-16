@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity as ActivityIcon, FolderOpen, Home as HomeIcon, Search as SearchIcon, User, WifiOff } from 'lucide-react';
+import { Activity as ActivityIcon, FolderOpen, Library as LibraryIcon, User, WifiOff } from 'lucide-react';
 import { ensureDefaultWells, getSetting } from './db';
 import { AuthContext, SignIn, useSession } from './auth';
 import { supabase } from './supabase';
 import { startSync, stopSync, syncNow, useSyncStatus } from './sync';
 import { installServerVoice } from './serverVoice';
-import { player, usePlan, useSetting } from './hooks';
+import { THEME_COLOR, player, startListeningMeter, useLook, usePlan, useSetting, type ThemeSetting } from './hooks';
 import { hasFeature } from '@wells/billing/src/plans.ts';
 import { setMonitorUser } from './monitor';
 import { parseShare } from '@wells/core';
@@ -21,13 +21,13 @@ import { Activity } from './views/Activity';
 import { Settings } from './views/Settings';
 import { Reader } from './views/Reader';
 
-type View = 'home' | 'wells' | 'search' | 'activity' | 'settings';
-const NAV: Array<{ id: View; label: string; Icon: typeof HomeIcon }> = [
-  { id: 'home', label: 'Home', Icon: HomeIcon },
+// Search is not a tab. It opens from the icon at the top right of the library screen.
+type View = 'home' | 'wells' | 'activity' | 'settings';
+const NAV: Array<{ id: View; label: string; Icon: typeof LibraryIcon }> = [
+  { id: 'home', label: 'Library', Icon: LibraryIcon },
   { id: 'wells', label: 'Wells', Icon: FolderOpen },
-  { id: 'search', label: 'Search', Icon: SearchIcon },
   { id: 'activity', label: 'Activity', Icon: ActivityIcon },
-  { id: 'settings', label: 'Profile', Icon: User },
+  { id: 'settings', label: 'You', Icon: User },
 ];
 
 export default function App() {
@@ -37,6 +37,8 @@ export default function App() {
   const plan = usePlan();
   const caps = useCapabilities(!!session);
   const [reviewing, setReviewing] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [fullPlayer, setFullPlayer] = useState(false);
   // Something shared from the phone's Share menu or the browser extension arrives in the address.
   const [share, setShare] = useState(() => parseShare(location.search));
   const mainRef = useRef<HTMLElement>(null);
@@ -45,12 +47,15 @@ export default function App() {
   useAutoIndex(!!session && hasFeature(plan, 'semantic_search') && !!caps?.embeddings, sync.lastSyncedAt);
   useEffect(() => { setMonitorUser(session?.user.id); }, [session?.user.id]);
   const [view, setView] = useState<View>('home');
-  const [reader, setReader] = useState<{ docId: string; blockId?: string } | null>(null);
+  const [reader, setReader] = useState<{ docId: string; blockId?: string; play?: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
-  const [theme] = useSetting<'system' | 'light' | 'dark'>('theme', 'system');
+  const [theme] = useSetting<ThemeSetting>('theme', 'system');
+  const look = useLook();
 
   useEffect(() => { installServerVoice(); }, []);
+  // Counts the time spent listening, for the streak on the Activity screen.
+  useEffect(() => startListeningMeter(), []);
 
   useEffect(() => {
     if (!session) return;
@@ -65,8 +70,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (theme === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    const root = document.documentElement;
+    if (theme === 'system') delete root.dataset.theme; else root.dataset.theme = theme;
+    root.dataset.look = look;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[look]);
+  }, [theme, look]);
 
   useEffect(() => {
     const on = () => setOnline(true), off = () => setOnline(false);
@@ -93,21 +101,22 @@ export default function App() {
   const gateOpen = ready && (!supabase || !!session || localOnly);
   useEffect(() => { if (share && gateOpen) { setImporting(true); history.replaceState(null, '', location.pathname); } }, [share, gateOpen]);
   // Moving to a new screen moves keyboard and screen-reader focus to it, instead of leaving it on the old button.
-  useEffect(() => { if (firstRender.current) { firstRender.current = false; return; } mainRef.current?.focus({ preventScroll: true }); }, [view, reader?.docId, reviewing]);
+  useEffect(() => { if (firstRender.current) { firstRender.current = false; return; } if (searching && !reader && !reviewing) return; mainRef.current?.focus({ preventScroll: true }); }, [view, reader?.docId, reviewing, searching]);
 
   const open = (docId: string, blockId?: string) => setReader({ docId, blockId });
+  const goTo = (id: View) => { setReader(null); setReviewing(false); setSearching(false); setView(id); };
 
   if (!ready) return <div className="splash" role="status">Loading…</div>;
   if (supabase && !session && !localOnly) return <SignIn onSkip={() => { localStorage.setItem('earshelf-local-only', '1'); setLocalOnly(true); }} />;
 
   return (
     <AuthContext.Provider value={session}>
-    <div className="shell">
+    <div className={reader ? 'shell reading' : 'shell'}>
       <a className="skip-link" href="#main" onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}>Skip to content</a>
       <nav className="sidenav" aria-label="Primary">
         <div className="brand">earshelf</div>
         {NAV.map(({ id, label, Icon }) => (
-          <button key={id} className={view === id && !reader ? 'nav-item active' : 'nav-item'} aria-current={view === id && !reader ? 'page' : undefined} onClick={() => { setReader(null); setReviewing(false); setView(id); }}>
+          <button key={id} className={view === id && !reader ? 'nav-item active' : 'nav-item'} aria-current={view === id && !reader ? 'page' : undefined} onClick={() => goTo(id)}>
             <Icon size={22} /><span>{label}</span>
           </button>
         ))}
@@ -116,22 +125,21 @@ export default function App() {
       <main className="content" id="main" tabIndex={-1} ref={mainRef}>
         {!online && <div className="banner" role="status"><WifiOff size={16} /> You’re offline. Your library and device voices still work.</div>}
         {online && sync.state === 'error' && <div className="banner" role="alert">Your changes are saved on this device but could not sync yet. <button className="link-btn inline" onClick={() => void syncNow(true)}>Try again</button></div>}
-        {reader ? <Reader docId={reader.docId} focusBlockId={reader.blockId} onBack={() => setReader(null)} /> : reviewing ? <Review onClose={() => setReviewing(false)} onOpen={(d, b) => { setReviewing(false); open(d, b); }} /> : (
+        {reader ? <Reader docId={reader.docId} focusBlockId={reader.blockId} autoPlay={reader.play} onBack={() => setReader(null)} onOpenPlayer={() => setFullPlayer(true)} /> : reviewing ? <Review onClose={() => setReviewing(false)} onOpen={(d, b) => { setReviewing(false); open(d, b); }} /> : searching ? <Search onOpen={(d, b) => { open(d, b); }} onBack={() => setSearching(false)} /> : (
           <>
-            {view === 'home' && <Home onOpen={open} onImport={() => setImporting(true)} onReview={() => setReviewing(true)} />}
+            {view === 'home' && <Home onOpen={(d, o) => setReader({ docId: d, play: o?.play })} onImport={() => setImporting(true)} onReview={() => setReviewing(true)} onSearch={() => setSearching(true)} />}
             {view === 'wells' && <Wells onOpen={open} />}
-            {view === 'search' && <Search onOpen={open} />}
             {view === 'activity' && <Activity onOpen={open} onReview={() => setReviewing(true)} />}
             {view === 'settings' && <Settings />}
           </>
         )}
       </main>
 
-      <PlayerBar onOpenReader={(docId) => open(docId)} />
+      <PlayerBar reading={!!reader} open={fullPlayer} onOpenChange={setFullPlayer} onOpenReader={(docId) => open(docId)} />
 
       <nav className="bottomnav" aria-label="Primary">
         {NAV.map(({ id, label, Icon }) => (
-          <button key={id} className={view === id && !reader ? 'nav-item active' : 'nav-item'} aria-current={view === id && !reader ? 'page' : undefined} onClick={() => { setReader(null); setReviewing(false); setView(id); }}>
+          <button key={id} className={view === id && !reader ? 'nav-item active' : 'nav-item'} aria-current={view === id && !reader ? 'page' : undefined} onClick={() => goTo(id)}>
             <Icon size={24} /><span>{label}</span>
           </button>
         ))}
