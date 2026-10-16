@@ -12,3 +12,5 @@ export * from './math.ts';
 export * from './dialogue.ts';
 export * from './exporters.ts';
 export * from './share.ts';
+export * from './chapters.ts';
+export * from './listening.ts';
