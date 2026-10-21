@@ -1,4 +1,4 @@
-import { classifyQuery, formatReference, parseRefKey, refKey } from '../../../../packages/scripture/src/index.ts';
+import { classifyQuery, formatReference, parseRefKey, refKey, DEFAULT_TRANSLATION } from '../../../../packages/scripture/src/index.ts';
 import { DEFAULT_TARGET_DAYS, LISTEN_MIN_SECONDS, XP, isDay, isXpKind, addDays, localDay, validTimeZone, xpAward, DAILY_XP_CAP, BADGES, type Session } from '../../../../packages/activity/src/index.ts';
 import type { Feature, Plan } from '../../../../packages/billing/src/plans.ts';
 import { config } from '../config.ts';
@@ -127,7 +127,9 @@ export function tapestryRoutes({ limit, bad }: Deps): Record<string, Route> {
     'POST /v1/tapestry/admin/setup': { auth: true, run: async (c) => {
       if (!config.tapestry.adminUserIds.has(c.user.id)) throw new HttpError(403, 'forbidden', 'This is only for the app owner.');
       const seeded = await seedStarter();
-      const imported = c.body.importText === false ? null : await importTranslation(c.body.enable === true);
+      const ids = Array.isArray(c.body.translations) ? (c.body.translations as unknown[]).filter((x): x is string => typeof x === 'string') : [DEFAULT_TRANSLATION];
+      const imported: Array<{ translation: string; verses: number; starterProblems: string[] } | { translation: string; error: string }> = [];
+      if (c.body.importText !== false) for (const id of ids) { try { imported.push(await importTranslation(id, c.body.enable === true)); } catch (e) { imported.push({ translation: id, error: e instanceof Error ? e.message : 'failed' }); } }
       return { seeded, imported };
     } },
   };
