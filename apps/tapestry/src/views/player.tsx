@@ -1,6 +1,7 @@
 import { player, usePlayer } from '../audio';
 import { Icon, PauseGlyph, PlayGlyph, Waveform, fmt } from '../ui';
 import { useNav } from '../nav';
+import { useTranslation } from '../tr';
 import { db } from '../db';
 import { uid } from '@wells/offline';
 import { award } from '../activity';
@@ -13,13 +14,13 @@ export function MiniPlayer({ onOpen }: { onOpen: () => void }) {
   );
 }
 export function PlayerView() {
-  const nav = useNav(); const p = usePlayer(); const it = p.queue[p.index];
+  const tr = useTranslation(); const nav = useNav(); const p = usePlayer(); const it = p.queue[p.index];
   if (!it) return <div className="screen"><button className="icon-btn plain" aria-label="Close player" onClick={nav.back}><Icon n="down" s={28} /></button><p className="mut">Nothing is playing. Choose a well or a passage to listen.</p></div>;
   const cut = p.charPos; const after = it.text.slice(cut); const m = /^(\s*)(\S+)/.exec(after); const word = m?.[2] ?? ''; const before = it.text.slice(0, cut) + (m?.[1] ?? ''); const rest = after.slice((m?.[0] ?? '').length); const off = p.queue[0]?.index ?? 0;
   return (
     <div className="screen stack" style={{ height: '100%' }}>
       <div className="row between"><button className="icon-btn plain" aria-label="Close player" onClick={nav.back} style={{ marginLeft: -10 }}><Icon n="down" s={28} /></button><div style={{ textAlign: 'center' }}><div className="label" style={{ fontSize: 12 }}>Playing from</div><div className="b" style={{ fontSize: 15 }}>{it.wellName ?? 'Single passage'}</div></div><div style={{ width: 34 }} /></div>
-      <div><div className="serif" style={{ fontSize: 34, fontWeight: 500, lineHeight: 1.1 }}>{it.title}</div><div className="sm mut" style={{ marginTop: 4 }}>World English Bible · passage {off + p.index + 1} of {off + p.queue.length}{p.silence ? ' · scripture, then silence' : ''}</div></div>
+      <div><div className="serif" style={{ fontSize: 34, fontWeight: 500, lineHeight: 1.1 }}>{it.title}</div><div className="sm mut" style={{ marginTop: 4 }}>{tr.name} · passage {off + p.index + 1} of {off + p.queue.length}{p.silence ? ' · scripture, then silence' : ''}</div></div>
       <div role="slider" aria-label="Playback position" aria-valuemin={0} aria-valuemax={Math.round(p.total)} aria-valuenow={Math.round(p.elapsed)} style={{ marginTop: 6 }}><Waveform progress={p.progress} live={p.playing} /></div>
       <div className="row between sm mut" style={{ marginTop: -6 }}><span>{fmt(p.elapsed)}</span><span>{p.waiting ? 'Silence…' : `−${fmt(Math.max(0, p.total - p.elapsed))}`}</span></div>
       <p className="read" style={{ margin: '4px 0 0' }} aria-live="off"><span className="mut">{before}</span>{word && <mark>{word}</mark>}<span className="mut">{rest}</span></p>

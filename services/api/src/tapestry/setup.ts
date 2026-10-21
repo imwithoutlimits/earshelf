@@ -1,13 +1,6 @@
 import { unzipSync, strFromU8 } from 'fflate';
-import { BOOKS, STARTER_WELLS, parseVpl, looksComplete, validateStarter } from '../../../../packages/scripture/src/index.ts';
+import { BOOKS, STARTER_WELLS, TRANSLATIONS, parseVpl, looksComplete, validateStarter } from '../../../../packages/scripture/src/index.ts';
 import { rest } from '../supa.ts';
-import { config } from '../config.ts';
-
-/** Facts about the World English Bible as published by eBible.org (checked in the license review). Other translations must be added deliberately, with their own terms. */
-const META: Record<string, { name: string; abbreviation: string; notice: string; licenseUrl: string }> = {
-  engwebp: { name: 'World English Bible', abbreviation: 'WEB', licenseUrl: 'https://ebible.org/Scriptures/details.php?id=engwebp',
-    notice: 'The World English Bible is in the public domain. "World English Bible" is a trademark of eBible.org: if the text is changed in any way, it must not be called the World English Bible.' },
-};
 
 async function download(id: string): Promise<string> {
   const res = await fetch(`https://ebible.org/Scriptures/${id}_vpl.zip`);
@@ -20,9 +13,10 @@ async function download(id: string): Promise<string> {
 const batches = <T,>(a: T[], n: number): T[][] => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 const upsert = (table: string, rows: unknown[], conflict: string) => rest(`${table}?on_conflict=${conflict}`, { method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: rows });
 
-export async function importTranslation(enable: boolean) {
-  const id = config.tapestry.translationId; const m = META[id];
-  if (!m) throw new Error(`Translation ${id} has no reviewed license entry. Add one to META in setup.ts after checking its terms.`);
+/** Loads one reviewed translation from eBible.org. Only translations listed in packages/scripture/src/translations.ts can be loaded. */
+export async function importTranslation(id: string, enable: boolean) {
+  const m = TRANSLATIONS.find((t) => t.id === id);
+  if (!m) throw new Error(`Translation ${id} is not in the reviewed list. Read its license, record it in LICENSES.md, then add it to translations.ts.`);
   const parsed = parseVpl(await download(id));
   if (!looksComplete(parsed)) throw new Error(`The text looks incomplete: ${parsed.books} books, ${parsed.verses.length} verses. Skipped lines: ${parsed.skipped.join(' | ')}`);
   await upsert('translations', [{ id, name: m.name, abbreviation: m.abbreviation, copyright_notice: m.notice, license_name: 'Public Domain', license_url: m.licenseUrl, source_url: `https://ebible.org/Scriptures/${id}_vpl.zip`, commercial_use_allowed: true, enabled: false }], 'id');

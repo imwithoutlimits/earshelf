@@ -1,5 +1,6 @@
 # Runs the earshelf server (and the free Kokoro voice engine) on any Docker host. Built for Coolify.
 # In Coolify: build pack "Docker Compose", base directory "/", compose file "/deploy/docker-compose.yml".
+# Coolify runs compose with the REPO ROOT as the project directory, so paths below (context) are relative to the repo root, not to this file.
 # Coolify reads the ${NAMES} below and shows them as boxes to fill in. Nothing secret is stored in this file.
 services:
   api:
@@ -59,6 +60,18 @@ services:
     mem_limit: 4g
     volumes:
       - ollama:/root/.ollama
+
+  # One-time helper: downloads the AI models (and checks them on later deploys), then exits. Exiting is normal.
+  # Coolify may show it as "exited"; that is expected. Not using Ollama? Delete this block and the ollama block above.
+  ollama-models:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until ollama list >/dev/null 2>&1; do sleep 3; done; ollama pull qwen2.5:3b; ollama pull all-minilm"]
 
   # Free, open voices. Private: only the api service can reach it. The image runs on both Intel and ARM servers.
   # Not wanted? Delete this whole block and the TTS_KOKORO_HOSTPORT line above.

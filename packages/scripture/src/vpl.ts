@@ -1,4 +1,7 @@
 import { findBook } from './books.ts';
+
+/** Some downloads carry Strong's number tags such as {H7225} or <G1234>. They are not part of the text. */
+export const sanitizeVerseText = (s: string): string => s.replace(/\s*[{<\[][HG]\d{1,4}[}>\]]/g, '').replace(/\s+/g, ' ').trim();
 export interface VerseRow { book: number; chapter: number; verse: number; text: string }
 export interface VplResult { verses: VerseRow[]; skipped: string[]; books: number }
 
@@ -13,7 +16,7 @@ export function parseVpl(text: string): VplResult {
     const book = findBook(m[1]);
     if (!book) { if (skipped.length < 20) skipped.push(line.slice(0, 60)); continue; }
     seen.add(book.n);
-    verses.push({ book: book.n, chapter: Number(m[2]), verse: Number(m[3]), text: m[4].replace(/\s+/g, ' ').trim() });
+    verses.push({ book: book.n, chapter: Number(m[2]), verse: Number(m[3]), text: sanitizeVerseText(m[4]) });
   }
   return { verses, skipped, books: seen.size };
 }

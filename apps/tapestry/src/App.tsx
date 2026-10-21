@@ -28,7 +28,7 @@ function Onboarding({ onDone }: { onDone: () => void }) {
       <div className="pills">{TOPIC_CHIPS.map((t) => <button key={t} className="pill" aria-pressed={topic === t} onClick={() => setTopic(t)}>{t}</button>)}</div>
       <div><div className="label" style={{ marginBottom: 6 }}>How long do you usually have?</div><Seg label="Listening time" value={mins} onChange={setMins} options={[['3', '3 min'], ['5', '5 min'], ['10', '10 min']]} /></div>
       <div><div className="label" style={{ marginBottom: 6 }}>After each passage</div><Seg label="After the passage" value={reflect} onChange={setReflect} options={[['scripture', 'Scripture only'], ['reflect', 'Add a reflection']]} /></div>
-      <p className="sm mut">Scripture text is the World English Bible. No account is needed to start.</p>
+      <p className="sm mut">Scripture text starts as the World English Bible. You can change translation in Profile. No account is needed to start.</p>
       <button className="btn primary big" onClick={async () => { await setSetting('currentWell', CHIP_TO_WELL[topic]); await setSetting('listenMinutes', Number(mins)); await setSetting('after', reflect); await setSetting('onboarded', true); onDone(); }}>Begin</button>
     </Sheet>
   );

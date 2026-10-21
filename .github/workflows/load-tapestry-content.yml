@@ -1,0 +1,27 @@
+name: Load Tapestry content
+# Run by hand only: Actions tab, "Load Tapestry content", Run workflow.
+# Loads the World English Bible (public domain) and the 16 starter wells into Supabase. Safe to run again.
+# Needs three repository secrets (Settings, Secrets and variables, Actions): SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY.
+on:
+  workflow_dispatch:
+    inputs:
+      translations:
+        description: 'Translations to load, comma separated. Each one uses database space (the free plan allows 500 MB), so leave this as engwebp unless you have checked the size.'
+        default: 'engwebp'
+permissions:
+  contents: read
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: node --experimental-strip-types scripts/load-tapestry-content.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TRANSLATIONS: ${{ inputs.translations }}
