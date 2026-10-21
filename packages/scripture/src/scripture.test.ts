@@ -62,7 +62,16 @@ test('starter wells: 16, every reference real, ordered, no duplicates inside a w
   assert.match(healing.intro, /do not replace medical care/);
   for (const k of ['JER.29.11', 'PHP.4.19', 'PHP.1.6', 'EST.4.14', 'EXO.4.11-12']) { const it = STARTER_WELLS.flatMap((w) => w.items).find((i) => i.ref === k); assert.ok(it?.note, `${k} needs a context note`); }
 });
-import { validateStarter } from './index.ts';
+import { validateStarter, TRANSLATIONS, DEFAULT_TRANSLATION, translationById, sanitizeVerseText } from './index.ts';
+test('translations: each is documented, unique, and the default exists', () => {
+  assert.equal(new Set(TRANSLATIONS.map((t) => t.id)).size, TRANSLATIONS.length); assert.ok(translationById(DEFAULT_TRANSLATION));
+  for (const t of TRANSLATIONS) { assert.match(t.licenseUrl, /^https:\/\/ebible\.org\//); assert.ok(t.notice.length > 40 && t.name && t.abbreviation && t.description, t.id); assert.match(t.notice, /public domain/i, t.id); }
+});
+test('verse text is cleaned of Strong\'s tags and extra spaces', () => {
+  assert.equal(sanitizeVerseText('In the beginning {H7225} God  created <H430> the heaven [H8064] and the earth.'), 'In the beginning God created the heaven and the earth.');
+  assert.equal(sanitizeVerseText('Plain text stays.'), 'Plain text stays.');
+  assert.equal(parseVpl('GEN 1:1 In the beginning {H7225} God').verses[0].text, 'In the beginning God');
+});
 test('validateStarter flags passages that run past the end of a chapter', () => {
   assert.equal(validateStarter(() => 200).length, 0);
   const bad = validateStarter((b, c) => (b === 50 && c === 4 ? 5 : 200)); // Philippians 4 pretend-short

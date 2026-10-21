@@ -1,16 +1,19 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useState } from 'react';
-import { GENERIC_PROMPTS, hideWords, nextReview, parseRefKey, STARTER_WELLS, type Token } from '@wells/scripture';
+import { GENERIC_PROMPTS, hideWords, nextReview, parseRefKey, STARTER_WELLS, type Token, type TranslationInfo } from '@wells/scripture';
+import { Sheet } from '@wells/ui';
 import { uid } from '@wells/offline';
 import { api, supabase } from '../api';
 import { db } from '../db';
-import { loadPassage, loadChapter, WEB, type Passage } from '../data';
+import { loadPassage, loadChapter, enabledTranslations, infoOf, type Passage } from '../data';
+import { useTranslation } from '../tr';
 import { award } from '../activity';
 import { player } from '../audio';
 import { Icon, PlayGlyph } from '../ui';
 import { useNav } from '../nav';
 
 export function PassageView({ k, wellId }: { k: string; wellId?: string }) {
+  const tr = useTranslation(); const [cmp, setCmp] = useState<Array<{ info: TranslationInfo; p: Passage | null }> | null>(null);
   const nav = useNav(); const [p, setP] = useState<Passage | null | undefined>(undefined); const [ctx, setCtx] = useState<Passage | null>(null); const [prompts, setPrompts] = useState<{ label: string; list: string[] } | null>(null); const [note, setNote] = useState('');
   const marked = useLiveQuery(() => db.bookmarks.where('ref').equals(k).count(), [k], 0); const notes = useLiveQuery(() => db.notes.where('ref').equals(k).toArray(), [k], []);
   useEffect(() => { void loadPassage(k).then(setP); }, [k]);
@@ -20,9 +23,9 @@ export function PassageView({ k, wellId }: { k: string; wellId?: string }) {
   return (
     <div className="screen">
       <button className="icon-btn plain" aria-label="Back" onClick={nav.back} style={{ marginLeft: -10 }}><Icon n="left" /></button>
-      <h1 className="h1" style={{ fontSize: 34, marginTop: 4 }}>{p?.title ?? (ref ? `${ref.book.name} ${ref.chapter}` : k)}</h1><p className="sm mut" style={{ marginTop: 4 }}>World English Bible</p>
+      <h1 className="h1" style={{ fontSize: 34, marginTop: 4 }}>{p?.title ?? (ref ? `${ref.book.name} ${ref.chapter}` : k)}</h1><p className="sm mut" style={{ marginTop: 4 }}>{tr.name}</p>
       {p === undefined && <p className="mut" style={{ marginTop: 16 }}>Loading…</p>}
-      {p === null && <p className="mut" style={{ marginTop: 16 }} role="status">This passage is not on this device yet. Connect once and it will be saved for offline use.</p>}
+      {p === null && <p className="mut" style={{ marginTop: 16 }} role="status">This passage is not available in this translation on this device yet. Connect to the internet once and it will be saved for offline use. If it never appears, the owner has not loaded this translation.</p>}
       {p && <p className="read" style={{ marginTop: 16 }}>{p.verses.map((v) => <span key={v.n}>{p.verses.length > 1 && <sup>{v.n}</sup>}{v.text} </span>)}</p>}
       <div className="row" style={{ marginTop: 16, flexWrap: 'wrap' }}>
         {p && <button className="btn primary" onClick={() => { player.setMode({ silence: false }); player.play([{ key: k, title: p.title, text: p.text }]); nav.go({ t: 'player' }); }}><PlayGlyph />Listen</button>}
@@ -30,11 +33,13 @@ export function PassageView({ k, wellId }: { k: string; wellId?: string }) {
         <button className="btn" onClick={() => nav.save([k])}><Icon n="plus" s={20} />Add to well</button>
         {p && <button className="btn" onClick={() => nav.go({ t: 'memorize', key: k })}>Memorize</button>}
         <button className="btn" onClick={async () => setCtx(ctx ? null : await loadChapter(k))}>{ctx ? 'Hide context' : 'Context'}</button>
+        <button className="btn" onClick={async () => { const ids = await enabledTranslations(); setCmp(await Promise.all(ids.map(async (id) => ({ info: infoOf(id), p: await loadPassage(k, id) })))); }}>Compare</button>
       </div>
       {ctx && <div className="sec"><div className="label">Whole chapter · {ctx.title}</div><p className="read" style={{ fontSize: 18, marginTop: 6 }}>{ctx.verses.map((v) => <span key={v.n}><sup>{v.n}</sup>{v.text} </span>)}</p></div>}
       <div className="sec"><div className="row between"><span className="b">Reflect</span><span className="sm tx">{prompts?.label ?? 'Editorial prompt'}</span></div>{(prompts?.list ?? list).map((x) => <p key={x} className="serif" style={{ fontSize: 19, margin: '8px 0' }}>{x}</p>)}{supabase && api.apiUrl && <button className="btn" onClick={() => void ai()}>Suggest prompts with AI</button>}</div>
       <div className="sec"><div className="b">Notes</div>{notes.map((n) => <p key={n.id} className="serif" style={{ fontSize: 18, margin: '8px 0' }}>{n.body}</p>)}<textarea className="ta" aria-label="Write a note" placeholder="Write a note. It stays private." value={note} onChange={(e) => setNote(e.target.value)} /><button className="btn primary" style={{ marginTop: 8 }} disabled={!note.trim()} onClick={async () => { const now = Date.now(); await db.notes.add({ id: uid(), ref: k, body: note.trim(), createdAt: now, updatedAt: now }); setNote(''); await award('write_note', k); }}>Save note</button></div>
-      <p className="sm mut" style={{ marginTop: 16 }}>{WEB.notice}</p>
+      <p className="sm mut" style={{ marginTop: 16 }}>{tr.notice}</p>
+      {cmp && <Sheet label="Compare translations" onClose={() => setCmp(null)}><h2>Compare translations</h2>{cmp.map(({ info, p: cp }) => <div key={info.id} className="sec" style={{ border: 0, padding: '4px 0' }}><div className="b">{info.name} <span className="sm mut">({info.abbreviation})</span></div><p className="read" style={{ fontSize: 19, marginTop: 4 }}>{cp ? cp.text : 'Not on this device yet. Choose this translation in Profile and connect once to save it.'}</p></div>)}<p className="sm mut">Each translation keeps its own wording and its own license.</p></Sheet>}
     </div>
   );
 }

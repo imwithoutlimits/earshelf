@@ -6,3 +6,4 @@ export * from './memorize.ts';
 export * from './guard.ts';
 export * from './topics.ts';
 export * from './starter.ts';
+export * from './translations.ts';

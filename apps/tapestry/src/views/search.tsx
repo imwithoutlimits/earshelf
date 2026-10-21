@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { CHIP_TO_WELL, LINK_LABEL, STARTER_WELLS, TOPIC_CHIPS, BOOKS, classifyQuery, formatReference, parseRefKey, refKey, wellsForText, type Link } from '@wells/scripture';
 import { api, supabase } from '../api';
 import { getSetting, setSetting } from '../db';
-import { createWell, loadPassage, searchLocal, type Passage } from '../data';
+import { createWell, loadPassage, searchLocal, getTranslation, type Passage } from '../data';
+import { useTranslation } from '../tr';
 import { Icon } from '../ui';
 import { useNav } from '../nav';
 
@@ -15,7 +16,7 @@ async function run(q: string): Promise<Result> {
   if (c.kind === 'book') { const b = BOOKS.find((x) => x.name.toLowerCase() === c.text.toLowerCase() || x.code.toLowerCase() === c.text.toLowerCase()) ?? BOOKS.find((x) => x.name.toLowerCase().startsWith(c.text.toLowerCase())); return { kind: 'book', label: b ? `${b.name} has ${b.chapters} chapters` : '', hits: [], chapters: b ? { code: b.code, n: b.chapters } : undefined }; }
   if (c.kind === 'phrase') {
     let keys = await searchLocal(c.text);
-    if (!keys.length && supabase) { const { data } = await supabase.rpc('search_verses', { p_translation: 'engwebp', p_query: c.text, p_limit: 20 }); keys = (data ?? []).map((r: { book: number; chapter: number; verse: number }) => `${BOOKS[r.book - 1].code}.${r.chapter}.${r.verse}`); }
+    if (!keys.length && supabase) { const { data } = await supabase.rpc('search_verses', { p_translation: await getTranslation(), p_query: c.text, p_limit: 20 }); keys = (data ?? []).map((r: { book: number; chapter: number; verse: number }) => `${BOOKS[r.book - 1].code}.${r.chapter}.${r.verse}`); }
     if (keys.length) return { kind: 'phrase', label: 'Exact matches', hits: keys.map((key) => ({ key })) };
   }
   // Feelings and situations: curated wells first (works offline and without AI), AI ordering when the account allows it.
@@ -27,7 +28,7 @@ async function run(q: string): Promise<Result> {
   return { kind: 'discover', label: 'From curated wells', wellName: w.name, hits: w.items.slice(0, 6).map((i) => ({ key: i.ref, link: i.link, note: i.note })) };
 }
 export function Search() {
-  const nav = useNav(); const [q, setQ] = useState(''); const [res, setRes] = useState<Result | null>(null); const [busy, setBusy] = useState(false); const [recent, setRecent] = useState<string[]>([]); const [texts, setTexts] = useState<Record<string, Passage | null>>({}); const ref = useRef<HTMLInputElement>(null);
+  const tr = useTranslation(); const nav = useNav(); const [q, setQ] = useState(''); const [res, setRes] = useState<Result | null>(null); const [busy, setBusy] = useState(false); const [recent, setRecent] = useState<string[]>([]); const [texts, setTexts] = useState<Record<string, Passage | null>>({}); const ref = useRef<HTMLInputElement>(null);
   useEffect(() => { void getSetting<string[]>('recent', []).then(setRecent); ref.current?.focus(); }, []);
   useEffect(() => { void (async () => { const m: Record<string, Passage | null> = {}; for (const h of (res?.hits ?? []).slice(0, 10)) m[h.key] = await loadPassage(h.key); setTexts(m); })(); }, [res]);
   const submit = async (text = q) => {
@@ -45,7 +46,7 @@ export function Search() {
         <button className="btn" style={{ border: 0, padding: '0 6px', marginLeft: 6 }} onClick={nav.back}>Cancel</button></div>
       <div className="screen" style={{ paddingTop: 0 }}>
         {!res && !busy && <>
-          <div className="pills" style={{ marginBottom: 12 }}><span className="pill">World English Bible</span><span className="pill">All books</span><span className="pill">Any length</span></div>
+          <div className="pills" style={{ marginBottom: 12 }}><span className="pill">{tr.name}</span><span className="pill">All books</span><span className="pill">Any length</span></div>
           <p className="mut" style={{ fontSize: 15 }}>Type a reference like John 3:16, a phrase, a topic, or how you feel. Tapestry works out which.</p>
           {recent.length > 0 && <><div className="label" style={{ margin: '18px 0 4px' }}>Recent</div>{recent.map((r) => <button key={r} className="item" style={{ fontWeight: 500, fontSize: 17 }} onClick={() => void submit(r)}>{r}</button>)}</>}
           <div className="label" style={{ margin: '18px 0 4px' }}>Try asking</div>{TRY.map((r) => <button key={r} className="item" style={{ fontWeight: 500, fontSize: 17 }} onClick={() => void submit(r)}>{r}</button>)}
@@ -59,7 +60,7 @@ export function Search() {
             <div key={h.key} className="row sec" style={{ alignItems: 'flex-start' }}>
               <button style={{ all: 'unset', cursor: 'pointer', flex: 1 }} onClick={() => nav.go({ t: 'passage', key: h.key })}><div className="b" style={{ fontSize: 15 }}>{r ? formatReference(r) : h.key}</div>{h.link && <div className="sm tx" style={{ margin: '2px 0 6px' }}>{LINK_LABEL[h.link]}</div>}<div className="serif" style={{ fontSize: 20, lineHeight: 1.35 }}>{snippet(h.key)}</div>{h.reason && <div className="sm mut" style={{ marginTop: 4 }}>{h.reason}</div>}{h.note && <div className="sm mut" style={{ marginTop: 4 }}>{h.note}</div>}</button>
               <button className="icon-btn" aria-label={`Save ${r ? formatReference(r) : ''} to a well`} onClick={() => nav.save([h.key])}><Icon n="plus" /></button></div>); })}
-          <p className="sm mut">The passages are Scripture (World English Bible). Only the order and labels are suggested{res.label === 'Suggested by AI' ? ' by AI' : ' from curated wells'}.</p>
+          <p className="sm mut">The passages are Scripture ({tr.name}). Only the order and labels are suggested{res.label === 'Suggested by AI' ? ' by AI' : ' from curated wells'}.</p>
           {res.kind === 'discover' && <button className="btn primary big" style={{ marginTop: 14 }} onClick={async () => { const id = await createWell(res.wellName ?? q, `Passages for: ${q}`, res.hits.map((h) => h.key), 'ai'); nav.toast('Well created'); nav.back(); nav.go({ t: 'well', id }); }}>Make a well from these</button>}</>}
       </div>
     </div>

@@ -6,6 +6,7 @@ import { summary } from '../activity';
 import { player, usePlayer } from '../audio';
 import { Constellation, Icon, PlayGlyph, Ring, Seg } from '../ui';
 import { useNav } from '../nav';
+import { useTranslation } from '../tr';
 import { formatReference, parseRefKey } from '@wells/scripture';
 
 /** The opening sentence or two of a passage, ending where a sentence ends. */
@@ -14,7 +15,7 @@ export const queueFor = async (w: WellView, from = 0) => {
   const out = []; for (let i = from; i < w.items.length; i++) { const p = await loadPassage(w.items[i].key); if (p) out.push({ key: p.key, title: p.title, text: p.text, wellId: w.id, wellName: w.name, index: i }); } return out;
 };
 export function Home() {
-  const nav = useNav(); const pl = usePlayer();
+  const nav = useNav(); const pl = usePlayer(); const tr = useTranslation();
   const [well, setWell] = useState<WellView | null>(null); const [idx, setIdx] = useState(0); const [p, setP] = useState<Passage | null>(null);
   const [after, setAfter] = useState<'scripture' | 'reflect' | 'journal'>('reflect'); const [prompt, setPrompt] = useState('');
   const sum = useLiveQuery(summary, [], null); const wellId = useLiveQuery(() => getSetting('currentWell', 'courage-for-difficult-days'), [], 'courage-for-difficult-days');
@@ -23,7 +24,7 @@ export function Home() {
   if (!well) return <div className="screen"><p className="mut">Loading…</p></div>;
   const listened = Math.min(idx, well.items.length); const upNext = well.items.slice(idx + 1, idx + 3);
   const text = p?.text ?? ''; const ref = parseRefKey(well.items[idx]?.key ?? '');
-  const listen = async () => { if (pl.playing && pl.queue[0]?.wellId === well.id) { player.toggle(); return; } const q = await queueFor(well, idx); if (q.length) { player.setMode({ silence: after !== 'scripture' || true }); player.play(q); } else nav.toast('This passage is not on this device yet. Connect once to download it.'); };
+  const listen = async () => { if (pl.playing && pl.queue[0]?.wellId === well.id) { player.toggle(); return; } const q = await queueFor(well, idx); if (q.length) { player.setMode({ silence: after !== 'scripture' || true }); player.play(q); } else nav.toast('The Bible text is not loaded yet. Connect to the internet once. If it still fails, the owner needs to load the Scripture.'); };
   return (
     <div className="screen">
       <div className="row between"><div><div className="label">{new Intl.DateTimeFormat('en', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</div><div className="b" style={{ fontSize: 16 }}>{well.name}</div></div>
@@ -34,7 +35,7 @@ export function Home() {
       <p className="sm mut">Each star is a passage in this well. The large star is today's.</p>
       <div style={{ marginTop: 14 }}>
         {p ? <button style={{ all: 'unset', cursor: 'pointer', display: 'block' }} onClick={() => nav.go({ t: 'passage', key: p.key, wellId: well.id })}><h1 className="verse">{lead(text)}</h1></button> : <h1 className="verse">{ref ? formatReference(ref) : '—'}</h1>}
-        <p className="mut" style={{ marginTop: 10, fontWeight: 500, fontSize: 15 }}>{ref ? formatReference(ref) : ''} · World English Bible{!p && ' · text loads after the first download'}</p>
+        <p className="mut" style={{ marginTop: 10, fontWeight: 500, fontSize: 15 }}>{ref ? formatReference(ref) : ''} · {tr.name}{!p && ' · text not loaded yet'}</p>
         <button className="btn primary big" style={{ marginTop: 18 }} onClick={() => void listen()}><PlayGlyph />{pl.playing && pl.queue[0]?.wellId === well.id ? 'Pause' : 'Listen, then silence'}</button>
         <div className="label" style={{ margin: '16px 0 6px' }}>After the passage</div>
         <Seg label="After the passage" value={after} options={[['scripture', 'Scripture only'], ['reflect', '+ Reflection'], ['journal', '+ Journal']]} onChange={async (v) => { setAfter(v); setPrompt(v === 'scripture' ? '' : (well.prompts[idx % Math.max(1, well.prompts.length)] ?? 'What phrase stands out to you?')); await setSetting('after', v); }} />
