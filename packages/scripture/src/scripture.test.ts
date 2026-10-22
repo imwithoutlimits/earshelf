@@ -62,6 +62,11 @@ test('starter wells: 16, every reference real, ordered, no duplicates inside a w
   assert.match(healing.intro, /do not replace medical care/);
   for (const k of ['JER.29.11', 'PHP.4.19', 'PHP.1.6', 'EST.4.14', 'EXO.4.11-12']) { const it = STARTER_WELLS.flatMap((w) => w.items).find((i) => i.ref === k); assert.ok(it?.note, `${k} needs a context note`); }
 });
+test('eBible book codes that differ from USFM are recognised, and unknown codes are listed', () => {
+  const lines = ['SOL 1:1 The Song of songs', 'PHI 1:1 Paul', 'JAM 1:1 James', '1JO 1:1 That which', '2JO 1:1 The elder', '3JO 1:1 The elder', 'TOB 1:1 Apocrypha line', 'WIS 1:1 Apocrypha line'].join('\n');
+  const r = parseVpl(lines);
+  assert.deepEqual(r.verses.map((v) => v.book), [22, 50, 59, 62, 63, 64]); assert.deepEqual(r.unknownCodes, ['TOB', 'WIS']);
+});
 import { validateStarter, TRANSLATIONS, DEFAULT_TRANSLATION, translationById, sanitizeVerseText } from './index.ts';
 test('translations: each is documented, unique, and the default exists', () => {
   assert.equal(new Set(TRANSLATIONS.map((t) => t.id)).size, TRANSLATIONS.length); assert.ok(translationById(DEFAULT_TRANSLATION));
