@@ -18,7 +18,7 @@ export async function importTranslation(id: string, enable: boolean) {
   const m = TRANSLATIONS.find((t) => t.id === id);
   if (!m) throw new Error(`Translation ${id} is not in the reviewed list. Read its license, record it in LICENSES.md, then add it to translations.ts.`);
   const parsed = parseVpl(await download(id));
-  if (!looksComplete(parsed)) throw new Error(`The text looks incomplete: ${parsed.books} books, ${parsed.verses.length} verses. Skipped lines: ${parsed.skipped.join(' | ')}`);
+  if (!looksComplete(parsed)) throw new Error(`The text looks incomplete: ${parsed.books} of 66 books, ${parsed.verses.length} verses. Unrecognised book codes: ${parsed.unknownCodes.join(', ') || 'none'}. Example lines: ${parsed.skipped.slice(0, 3).join(' | ')}`);
   await upsert('translations', [{ id, name: m.name, abbreviation: m.abbreviation, copyright_notice: m.notice, license_name: 'Public Domain', license_url: m.licenseUrl, source_url: `https://ebible.org/Scriptures/${id}_vpl.zip`, commercial_use_allowed: true, enabled: false }], 'id');
   await upsert('bible_books', BOOKS.map((b) => ({ n: b.n, code: b.code, name: b.name, testament: b.testament, chapters: b.chapters })), 'n');
   const counts = new Map<string, number>();
