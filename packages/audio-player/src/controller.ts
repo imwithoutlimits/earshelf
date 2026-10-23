@@ -29,17 +29,23 @@ export interface TrackMeta {
   title: string;
   author?: string;
   sectionTitles: Record<string, string>;
+  /** Pictures for the lock screen and the playback notification. */
+  artwork?: Array<{ src: string; sizes?: string; type?: string }>;
 }
 
-const SILENT_WAV = (() => {
-  // 1 second of 8 kHz mono silence. Holds the media session open while browser speech is playing.
-  const n = 8000, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+/**
+ * Ten seconds of a 25 Hz hum at about -50 dB, looped. Browsers keep a page alive and show playback controls only for media they count as audible,
+ * and they treat exact silence (or a 1% volume of silence) as not playing at all. 25 Hz at this level cannot be heard on a phone or earphones.
+ * Ten seconds because very short clips are not given a notification. 250 whole cycles, so the loop has no click.
+ */
+const KEEP_ALIVE_WAV = (() => {
+  const rate = 8000, n = rate * 10, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
   const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  s(0, 'RIFF'); v.setUint32(4, 36 + n, true); s(8, 'WAVE'); s(12, 'fmt ');
+  s(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); s(8, 'WAVE'); s(12, 'fmt ');
   v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
-  s(36, 'data'); v.setUint32(40, n, true);
-  new Uint8Array(buf, 44).fill(128);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  s(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.round(100 * Math.sin((2 * Math.PI * 25 * i) / rate)), true);
   return buf;
 })();
 
@@ -58,12 +64,29 @@ export class PlayerController {
   /** Lets the app fetch server audio before playback starts. If it throws, playback continues with the device voice. */
   beforePlay: ((index: number) => Promise<void>) | null = null;
   private wiredAudio = false;
+  private lastMediaKey = '';
   private snap: PlayerState;
 
   constructor() {
     this.snap = this.build({ status: 'idle', rate: 1, volume: 1, voiceId: null, error: null });
     this.wire(this.speech);
     this.installMediaSession();
+  }
+
+  /** Fractional place in the document: the sentence number plus how far through that sentence it is. Read this every frame to animate. */
+  getPosition = (): number => (this.queue.length ? this.queue.index + (this.snap.status === 'playing' ? this.engine.fraction() : 0) : 0);
+  /** 0 to 1 "sound" level that follows the words, for the moving waveform. Zero when not playing. */
+  getLevel = (): number => (this.snap.status === 'playing' ? this.engine.energy() : 0);
+  getItems = (): Utterance[] => this.queue.items;
+
+  /**
+   * Call from a tap, before anything is awaited. Browsers only let audio and speech start from a real tap,
+   * so this wakes both up while the tap is still fresh and the actual playback can start a moment later.
+   */
+  prime() {
+    this.startKeepAlive();
+    if (SpeechEngine.supported()) { try { const u = new SpeechSynthesisUtterance(''); u.volume = 0; speechSynthesis.speak(u); } catch { /* not available */ } }
+    setTimeout(() => { if (this.snap.status !== 'playing' && this.snap.status !== 'loading') this.stopKeepAlive(); }, 10000);
   }
 
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
@@ -217,9 +240,9 @@ export class PlayerController {
   private startKeepAlive() {
     if (typeof Audio === 'undefined') return;
     if (!this.keepAlive) {
-      this.keepAlive = new Audio(URL.createObjectURL(new Blob([SILENT_WAV], { type: 'audio/wav' })));
+      this.keepAlive = new Audio(URL.createObjectURL(new Blob([KEEP_ALIVE_WAV], { type: 'audio/wav' })));
       this.keepAlive.loop = true;
-      this.keepAlive.volume = 0.01;
+      this.keepAlive.setAttribute('aria-hidden', 'true');
     }
     void this.keepAlive.play().catch(() => {});
   }
@@ -229,17 +252,34 @@ export class PlayerController {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
     const set = (a: MediaSessionAction, h: MediaSessionActionHandler) => { try { ms.setActionHandler(a, h); } catch { /* unsupported action */ } };
-    set('play', () => this.play());
+    set('play', () => { void this.play(); });
     set('pause', () => this.pause());
     set('previoustrack', () => this.previous());
     set('nexttrack', () => this.nextSection());
-    set('seekbackward', () => this.back(15));
-    set('seekforward', () => this.forward(30));
+    set('seekbackward', (d) => this.back(d.seekOffset ?? 15));
+    set('seekforward', (d) => this.forward(d.seekOffset ?? 30));
+    set('seekto', (d) => {
+      if (typeof d.seekTime !== 'number') return;
+      const elapsed = Math.max(0, this.snap.totalSeconds - this.snap.remainingSeconds);
+      this.moveTo(this.queue.seekSeconds(d.seekTime - elapsed, this.snap.rate));
+    });
     set('stop', () => this.pause());
   }
   private syncMediaSession() {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !this.meta) return;
-    navigator.mediaSession.metadata = new MediaMetadata({ title: this.snap.sectionTitle || this.meta.title, artist: this.meta.author ?? '', album: this.meta.title });
-    navigator.mediaSession.playbackState = this.snap.status === 'playing' ? 'playing' : 'paused';
+    const ms = navigator.mediaSession;
+    try {
+      const title = this.snap.sectionTitle || this.meta.title, key = `${this.meta.documentId}|${title}`;
+      if (key !== this.lastMediaKey) { // only when it changes, so the notification does not redraw on every sentence
+        this.lastMediaKey = key;
+        ms.metadata = new MediaMetadata({ title, artist: this.meta.author ?? 'earshelf', album: this.meta.title, artwork: this.meta.artwork ?? [] });
+      }
+      ms.playbackState = this.snap.status === 'playing' || this.snap.status === 'loading' ? 'playing' : this.snap.status === 'paused' ? 'paused' : 'none';
+      const duration = this.snap.totalSeconds;
+      if (duration > 0 && 'setPositionState' in ms) {
+        const position = Math.min(duration, Math.max(0, duration - this.snap.remainingSeconds));
+        ms.setPositionState({ duration, position, playbackRate: this.snap.rate });
+      }
+    } catch { /* an unsupported browser should never stop playback */ }
   }
 }

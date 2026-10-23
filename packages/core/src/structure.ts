@@ -1,4 +1,5 @@
 import type { DocBlock, DocSection, ParsedDocument, SourceType } from './model.ts';
+import { pickTitle } from './titles.ts';
 
 const CHAPTER_RE = /^(?:(?:chapter|part|book|section|appendix)\s+(?:\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b[.:]?(?:\s+\S.{0,60})?|(?:prologue|epilogue|preface|introduction|conclusion|abstract))$/i;
 const NUMBERED_HEADING_RE = /^(\d+(?:\.\d+){0,3})\s+[A-Z][^.!?]{2,60}$/;
@@ -130,7 +131,7 @@ export function parseStructure(text: string, meta: ParseMeta): ParsedDocument {
 
   const firstH1 = blocks.find((b) => b.type === 'heading' && b.level === 1);
   const firstLine = blocks.find((b) => b.type === 'paragraph' || b.type === 'heading');
-  const title = (meta.title?.trim() || firstH1?.text || firstLine?.text.slice(0, 80) || 'Untitled').trim();
+  const title = (pickTitle([meta.title, firstH1?.text, firstLine?.text.slice(0, 80)]) ?? 'Untitled').trim();
 
   const sections: DocSection[] = [];
   let current: DocSection = { id: 's0000', title, level: 0, blockIds: [] };

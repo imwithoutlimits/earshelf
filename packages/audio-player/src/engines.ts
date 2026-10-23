@@ -17,6 +17,10 @@ export interface PlaybackEngine {
   setVolume(v: number): void;
   setVoice(id: string | null): void;
   on(cb: (e: EngineEvent) => void): void;
+  /** How far through the current utterance it is, 0 to 1, moving smoothly while it plays. */
+  fraction(): number;
+  /** A 0 to 1 "how much sound right now" for the moving waveform. It follows the words, not the real audio signal. */
+  energy(): number;
 }
 
 /** Sentence-by-sentence browser speech. Short utterances avoid Chrome's long-utterance cutoff. */
@@ -30,6 +34,8 @@ export class SpeechEngine implements PlaybackEngine {
   private token = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private lang = 'en';
+  private cur = { len: 1, estMs: 1000, startedAt: 0, charAt: 0, charTime: 0, msPerChar: 0, active: false, done: false };
+  private lastBoundary = 0;
 
   static supported(): boolean {
     return typeof window !== 'undefined' && 'speechSynthesis' in window;
@@ -48,8 +54,17 @@ export class SpeechEngine implements PlaybackEngine {
       if (my !== this.token) return;
       if (i >= this.items.length) { this.cb({ type: 'ended' }); return; }
       const u = this.items[i];
+      const words = Math.max(1, u.spoken.split(/\s+/).length);
+      this.cur = { len: Math.max(1, u.spoken.length), estMs: (words / (2.6 * this.rate)) * 1000, startedAt: 0, charAt: 0, charTime: 0, msPerChar: 0, active: true, done: false };
       this.cb({ type: 'utterance', index: i });
       const ut = new SpeechSynthesisUtterance(u.spoken);
+      ut.onstart = () => { this.cur.startedAt = this.cur.charTime = performance.now(); };
+      ut.onboundary = (ev) => {
+        if (ev.name && ev.name !== 'word') return;
+        const now = performance.now();
+        this.cur.charAt = ev.charIndex; this.cur.charTime = now; this.lastBoundary = now;
+        if (ev.charIndex > 8 && this.cur.startedAt) this.cur.msPerChar = (now - this.cur.startedAt) / ev.charIndex;
+      };
       ut.rate = this.rate;
       ut.volume = this.volume;
       ut.lang = this.lang;
@@ -57,6 +72,7 @@ export class SpeechEngine implements PlaybackEngine {
       if (v) { ut.voice = v; ut.lang = v.lang; }
       ut.onend = () => {
         if (my !== this.token) return;
+        this.cur.active = false; this.cur.done = true;
         this.timer = setTimeout(() => speakAt(i + 1), u.pauseAfterMs / this.rate);
       };
       ut.onerror = (ev) => {
@@ -68,8 +84,20 @@ export class SpeechEngine implements PlaybackEngine {
     };
     speakAt(from);
   }
+  fraction(): number {
+    const c = this.cur;
+    if (c.done) return 1;
+    if (!c.active || !c.startedAt) return 0;
+    const perChar = c.msPerChar || c.estMs / c.len;
+    const chars = c.charAt + (performance.now() - c.charTime) / perChar;
+    return Math.min(0.99, Math.max(0, chars / c.len));
+  }
+  energy(): number {
+    if (!this.cur.active || !this.cur.startedAt) return 0;
+    return 0.3 + 0.7 * Math.exp(-(performance.now() - this.lastBoundary) / 140);
+  }
   /** Pause = cancel and remember position; pause()/resume() are unreliable across mobile browsers. */
-  pause() { this.stop(); }
+  pause() { this.cur.active = false; this.stop(); }
   stop() {
     this.token++;
     if (this.timer) clearTimeout(this.timer);
@@ -139,6 +167,23 @@ export class AudioChunkEngine implements PlaybackEngine {
     if (last >= this.items.length - 1) { this.cb({ type: 'ended' }); return; }
     if (this.covers(last + 1)) this.play(last + 1);
     else this.cb({ type: 'gap', index: last + 1 }); // the controller fetches it and continues
+  }
+  fraction(): number {
+    const chunk = this.chunks.find((c) => c.url === this.currentUrl);
+    if (!chunk) return 0;
+    const t = this.el.currentTime * 1000;
+    let k = 0;
+    for (let j = 0; j < chunk.items.length; j++) { if (chunk.items[j].startMs <= t) k = j; else break; }
+    const start = chunk.items[k]?.startMs ?? 0;
+    const end = chunk.items[k + 1]?.startMs ?? chunk.durationMs;
+    return end > start ? Math.min(0.99, Math.max(0, (t - start) / (end - start))) : 0;
+  }
+  energy(): number {
+    if (this.el.paused) return 0;
+    // Server audio cannot be read from another origin without CORS, so the movement follows the speech rhythm instead of the real signal.
+    const slot = Math.floor(this.el.currentTime * 3.4);
+    const r = ((Math.sin(slot * 12.9898) * 43758.5453) % 1 + 1) % 1;
+    return 0.3 + 0.7 * (0.35 + 0.65 * r) * (0.55 + 0.45 * Math.sin((this.el.currentTime * 3.4 % 1) * Math.PI));
   }
   pause() { this.el.pause(); }
   stop() { this.el.pause(); this.lastIndex = -1; }

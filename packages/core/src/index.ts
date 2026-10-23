@@ -14,3 +14,5 @@ export * from './exporters.ts';
 export * from './share.ts';
 export * from './chapters.ts';
 export * from './listening.ts';
+export * from './titles.ts';
+export * from './notify.ts';

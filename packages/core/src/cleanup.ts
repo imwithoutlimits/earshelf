@@ -1,5 +1,5 @@
 import type { CleanupReport } from './model.ts';
-import { isHeadingLine } from './structure.ts';
+import { countWords, guessHeading, isHeadingLine } from './structure.ts';
 
 export interface CleanupOptions {
   pageNumbers: boolean;
@@ -9,7 +9,18 @@ export interface CleanupOptions {
   footnotes: boolean;
   references: boolean;
   citations: boolean;
+  /** Everything below is optional so documents saved earlier keep working. Unset means off. */
+  tables?: boolean;
+  figures?: boolean;
+  urls?: boolean;
+  contents?: boolean;
+  emoji?: boolean;
+  code?: boolean;
+  /** Keys from listSections() for sections the person does not want read. */
+  skipSections?: string[];
 }
+/** The on/off options (everything except the list of skipped sections). */
+export type CleanupFlag = Exclude<keyof CleanupOptions, 'skipSections'>;
 
 export const DEFAULT_CLEANUP: CleanupOptions = {
   pageNumbers: true,
@@ -164,7 +175,7 @@ export function analyze(pages: string[]): CleanupReport {
   }
   const hyphenatedWords = countMatches(pages.map(normalizeText).join('\n'), /[a-z]-\n[a-z]/);
 
-  return { pageNumbers, repeatedHeaders, footnotes, references, citations, tables, figures, hyphenatedWords };
+  return { pageNumbers, repeatedHeaders, footnotes, references, citations, tables, figures, hyphenatedWords, ...countExtras(pages) };
 }
 
 /** Rejoins hard-wrapped lines into paragraphs (paragraphs separated by blank lines). */
@@ -211,10 +222,109 @@ export function cleanPages(pages: string[], opts: CleanupOptions = DEFAULT_CLEAN
     const idx = findReferencesStart(kept);
     if (idx >= 0) kept = kept.slice(0, idx);
   }
+  if (opts.contents) {
+    const toc = findContents(kept);
+    if (toc) kept = [...kept.slice(0, toc.from), ...kept.slice(toc.to)];
+  }
+  if (opts.tables) kept = kept.filter((l) => !/^\s*\|/.test(l) && !/^\s*table\s+\d+/i.test(l));
+  if (opts.figures) kept = kept.filter((l) => !/^\s*(figure|fig\.)\s+\d+/i.test(l));
 
   let text = kept.join('\n');
+  if (opts.code) text = stripCodeBlocks(text);
   if (opts.hyphenation) text = text.replace(/([a-z])-\n([a-z])/g, '$1$2');
   text = opts.lineWraps ? reflow(text) : text.replace(/\n{3,}/g, '\n\n');
   if (opts.citations) text = stripCitations(text);
+  if (opts.urls) text = stripUrls(text);
+  if (opts.emoji) text = stripEmoji(text);
+  if (opts.skipSections?.length) text = dropSections(text, opts.skipSections);
   return text.trim();
+}
+
+/* ---------- more things a person can choose not to have read ---------- */
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>]*[^\s<>.,;:!?'"”’)\]]/gi;
+const EMAIL_RE = /\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/g;
+const EMOJI_RE = /(?![\u00a9\u00ae\u2122])\p{Extended_Pictographic}|[\ufe0f\u200d]/gu;
+const TOC_HEAD = /^\s*(?:table of )?contents\s*$/i;
+const TOC_LINE = /^.{2,90}?(?:\.{2,}|·{2,}|…+|\s{3,})\s*(?:\d{1,4}|[ivxlc]{1,6})\s*$/i;
+
+export function stripUrls(text: string): string {
+  return text.replace(URL_RE, '').replace(EMAIL_RE, '').replace(/\(\s*\)/g, '').replace(/[ \t]{2,}/g, ' ').replace(/ +([,.;:!?])/g, '$1');
+}
+export function stripEmoji(text: string): string {
+  return text.replace(EMOJI_RE, '').replace(/[ \t]{2,}/g, ' ');
+}
+export function stripCodeBlocks(text: string): string {
+  return text.replace(/^[ \t]*```[^\n]*\n[\s\S]*?^[ \t]*```[ \t]*$/gm, '').replace(/\n{3,}/g, '\n\n');
+}
+
+/** Index range [from, to) of a table of contents near the start (a Contents heading followed by lines ending in page numbers). */
+export function findContents(lines: string[]): { from: number; to: number; entries: number } | null {
+  const limit = Math.floor(lines.length * 0.5);
+  for (let i = 0; i < limit; i++) {
+    if (!TOC_HEAD.test(lines[i])) continue;
+    let j = i + 1, entries = 0, blanks = 0;
+    while (j < lines.length) {
+      const t = lines[j].trim();
+      if (!t) { if (++blanks > 3) break; j++; continue; }
+      if (!TOC_LINE.test(t)) break;
+      entries++; blanks = 0; j++;
+    }
+    if (entries >= 3) return { from: i, to: j, entries };
+  }
+  return null;
+}
+
+const normKeyTitle = (t: string) => t.trim().toLowerCase().replace(/\s+/g, ' ');
+
+export interface SectionItem { key: string; title: string; level: number; words: number }
+
+/** The headings found in cleaned text, with a stable key for each (the same title twice gets 1 and 2) so a choice survives other changes. */
+export function listSections(text: string): SectionItem[] {
+  const seen = new Map<string, number>();
+  const out: SectionItem[] = [];
+  let cur: SectionItem | null = null;
+  for (const p of text.split(/\n{2,}/)) {
+    const h = p.includes('\n') ? null : guessHeading(p);
+    if (h) {
+      const base = normKeyTitle(h.text);
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      cur = { key: `${base}|${n}`, title: h.text, level: h.level, words: 0 };
+      out.push(cur);
+    } else if (cur) cur.words += countWords(p);
+  }
+  return out;
+}
+
+/** Removes the chosen sections: each heading and everything under it until the next heading of the same or higher level. */
+export function dropSections(text: string, keys: string[] | undefined): string {
+  if (!keys?.length) return text;
+  const drop = new Set(keys);
+  const seen = new Map<string, number>();
+  const kept: string[] = [];
+  let skipLevel: number | null = null;
+  for (const p of text.split(/\n{2,}/)) {
+    const h = p.includes('\n') ? null : guessHeading(p);
+    if (h) {
+      const base = normKeyTitle(h.text);
+      const n = (seen.get(base) ?? 0) + 1;
+      seen.set(base, n);
+      if (skipLevel !== null && h.level <= skipLevel) skipLevel = null;
+      if (skipLevel === null && drop.has(`${base}|${n}`)) skipLevel = h.level;
+    }
+    if (skipLevel === null) kept.push(p);
+  }
+  return kept.join('\n\n');
+}
+
+/** Counts for the checklist, so each choice can say how much it would remove. */
+export function countExtras(pages: string[]): { urls: number; emoji: number; contents: number; code: number } {
+  const text = pages.map(normalizeText).join('\n');
+  const toc = findContents(text.split('\n'));
+  return {
+    urls: countMatches(text, URL_RE) + countMatches(text, EMAIL_RE),
+    emoji: countMatches(text, EMOJI_RE),
+    contents: toc?.entries ?? 0,
+    code: countMatches(text, /^[ \t]*```/m) / 2 | 0,
+  };
 }

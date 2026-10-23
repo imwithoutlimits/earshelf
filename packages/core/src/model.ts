@@ -30,6 +30,11 @@ export interface CleanupReport {
   tables: number;
   figures: number;
   hyphenatedWords: number;
+  /** Found in newer imports only, so they are optional on documents saved earlier. */
+  urls?: number;
+  emoji?: number;
+  contents?: number;
+  code?: number;
 }
 
 export interface ParsedDocument {
