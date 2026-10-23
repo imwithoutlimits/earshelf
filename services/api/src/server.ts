@@ -19,6 +19,7 @@ import { jobStatus, startExport } from './exportJob.ts';
 import { report } from './monitor.ts';
 import { tapestryRoutes } from './tapestry/routes.ts';
 import { earshelfActivityRoutes } from './earshelf/activity.ts';
+import { earshelfPushRoutes, startPushScheduler } from './earshelf/push.ts';
 
 type Json = Record<string, unknown>;
 interface Ctx { user: { id: string }; body: Json; query: URLSearchParams; plan: () => Promise<Plan> }
@@ -191,6 +192,7 @@ const routes: Record<string, Route> = {
 
 Object.assign(routes, tapestryRoutes({ limit, bad }));
 Object.assign(routes, earshelfActivityRoutes({ limit, bad }));
+Object.assign(routes, earshelfPushRoutes({ limit, bad }));
 
 const tokenCache = new Map<string, { id: string; exp: number }>();
 async function authenticate(req: IncomingMessage): Promise<{ id: string }> {
@@ -251,6 +253,7 @@ createServer(async (req, res) => {
     res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'server_error', message: 'Something went wrong on our side. Try again in a moment.' }));
   }
 }).listen(config.port, () => console.log(`wells api (earshelf + tapestry) listening on ${config.port}`));
+startPushScheduler();
 
 process.on('uncaughtException', (e) => { console.error('uncaught', e); report(e, 'uncaughtException'); });
 process.on('unhandledRejection', (e) => { console.error('unhandled', e); report(e, 'unhandledRejection'); });
