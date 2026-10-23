@@ -27,9 +27,9 @@ export function NaturalVoice({ docId }: { docId?: string }) {
   useEffect(() => { if (dialogueVoice && voices.length && !voices.some((v) => v.id === dialogueVoice)) setDialogueVoice(''); }, [voices, dialogueVoice, setDialogueVoice]);
   useEffect(() => { if (docId) void downloadStats(docId).then(setStats); }, [docId, busy]);
 
-  if (!user) return <p className="hint">Sign in to use natural voices.</p>;
-  if (!caps) return <p className="hint">Natural voices are not available on this server yet.</p>;
-  if (!caps.engines.length) return <p className="hint">No voice engine is switched on for this server yet.</p>;
+  if (!user) return <p className="hint">Sign in to use natural voices. They need your account and a connection to the earshelf server.</p>;
+  if (!caps) return <p className="hint" role="status">Checking for natural voices… If this stays here, the app could not reach the earshelf server, so check your connection. (Owner: check that the API address is set for this app and the API is running.)</p>;
+  if (!caps.engines.length) return <p className="hint">The server is reachable, but no natural voice engine is running on it yet. (Owner: start your Kokoro service and set <code>TTS_KOKORO_HOSTPORT</code> on the API service to its address, for example <code>kokoro:8880</code>, then redeploy the API.)</p>;
   const canVoice = hasFeature(plan, 'natural_tts');
   const canOffline = hasFeature(plan, 'offline_audio');
   const fail = (e: unknown) => setMsg(e instanceof ApiError || e instanceof Error ? e.message : 'Something went wrong. Try again.');

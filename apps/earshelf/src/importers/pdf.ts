@@ -1,4 +1,5 @@
 import * as pdfjs from 'pdfjs-dist';
+import { pickTitle, titleFromFileName, cleanAuthor } from '@wells/core';
 import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { Imported } from '../pipeline';
 import { ImportError, NeedsOcrError } from './errors';
@@ -54,7 +55,7 @@ export async function importPdf(file: File, onProgress?: (done: number, total: n
   const info = (await pdf.getMetadata().catch(() => null))?.info as { Title?: string; Author?: string } | undefined;
   return {
     pages,
-    meta: { title: info?.Title?.trim() || file.name.replace(/\.pdf$/i, ''), author: info?.Author?.trim() || undefined, sourceType: 'pdf', pageCount: pdf.numPages },
+    meta: { title: pickTitle([info?.Title, titleFromFileName(file.name)]), author: cleanAuthor(info?.Author), sourceType: 'pdf', pageCount: pdf.numPages },
     fileName: file.name, mime: file.type || 'application/pdf', blob: file,
   };
 }
@@ -79,5 +80,5 @@ export async function ocrPdf(file: File, onProgress: (done: number, total: numbe
     onProgress(pdf.numPages, pdf.numPages);
   } finally { await worker.terminate(); }
   await addOcrUsed(pdf.numPages);
-  return { pages, meta: { title: file.name.replace(/\.pdf$/i, ''), sourceType: 'pdf', pageCount: pdf.numPages }, fileName: file.name, mime: 'application/pdf', blob: file };
+  return { pages, meta: { title: titleFromFileName(file.name), sourceType: 'pdf', pageCount: pdf.numPages }, fileName: file.name, mime: 'application/pdf', blob: file };
 }

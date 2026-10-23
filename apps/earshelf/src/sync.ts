@@ -10,7 +10,7 @@ import { coalesceOutbox, makePullTable, makeStatusStore } from '@wells/offline';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 const PRODUCT = 'earshelf';
-export const SYNCED_SETTINGS = ['theme', 'homeLayout', 'weeklyTarget', 'voiceProfile', 'rate', 'pauseScale', 'defaultMode', 'voiceURI', 'useServerVoice', 'ttsProvider', 'ttsVoice', 'narrCitations', 'narrEquations', 'narrTables', 'dialogueVoice'];
+export const SYNCED_SETTINGS = ['theme', 'homeLayout', 'weeklyTarget', 'notifyPrefs', 'voiceProfile', 'rate', 'pauseScale', 'defaultMode', 'voiceURI', 'useServerVoice', 'ttsProvider', 'ttsVoice', 'narrCitations', 'narrEquations', 'narrTables', 'dialogueVoice'];
 const iso = (ms: number | undefined) => (ms ? new Date(ms).toISOString() : null);
 const ms = (s: string | null | undefined) => (s ? Date.parse(s) : undefined);
 

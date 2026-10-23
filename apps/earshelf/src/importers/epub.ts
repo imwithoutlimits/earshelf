@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { pickTitle, titleFromFileName, cleanAuthor } from '@wells/core';
 import { htmlToText } from './html';
 import type { Imported } from '../pipeline';
 
@@ -41,7 +42,7 @@ export async function importEpub(file: File): Promise<Imported> {
   const language = opf.querySelector('metadata > language, metadata language')?.textContent?.trim();
   return {
     pages: [chapters.join('\n\n')],
-    meta: { title: title || file.name.replace(/\.epub$/i, ''), author, language, sourceType: 'epub' },
+    meta: { title: pickTitle([title, titleFromFileName(file.name)]), author: cleanAuthor(author), language, sourceType: 'epub' },
     fileName: file.name, mime: 'application/epub+zip', blob: file,
   };
 }

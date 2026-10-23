@@ -7,6 +7,7 @@ import type { ReadingMode, Utterance } from '@wells/core';
 import { hasFeature, type Feature, type Plan } from '@wells/billing/src/plans.ts';
 import { localDay } from '@wells/activity';
 import { syncListeningSoon } from './activitySync';
+import { refreshPushSoon } from './push';
 import { db, queueSync, setSetting, type DocRecord } from './db';
 
 export const player = new PlayerController();
@@ -114,7 +115,8 @@ export async function loadIntoPlayer(doc: DocRecord, utterances: Utterance[]) {
   loadedUtterances = utterances;
   const sectionTitles: Record<string, string> = {};
   doc.parsed.sections.forEach((sec) => { sectionTitles[sec.id] = sec.title; });
-  player.load({ documentId: doc.id, title: doc.title, author: doc.author, sectionTitles }, utterances, Math.min(start, Math.max(0, utterances.length - 1)));
+  const art = (file: string, size: number) => ({ src: new URL(`icons/${file}`, document.baseURI).href, sizes: `${size}x${size}`, type: 'image/png' });
+  player.load({ documentId: doc.id, title: doc.title, author: doc.author, sectionTitles, artwork: [art('icon-192.png', 192), art('icon-512.png', 512)] }, utterances, Math.min(start, Math.max(0, utterances.length - 1)));
 }
 
 export function useVoices(lang = 'en'): SpeechSynthesisVoice[] {
@@ -183,6 +185,7 @@ export function startListeningMeter(): () => void {
       await db.listening.put({ day, seconds: (row?.seconds ?? 0) + whole, updatedAt: Date.now(), pushed: row?.pushed });
     });
     syncListeningSoon();
+    refreshPushSoon();
   };
   const tick = () => {
     const now = Date.now();
@@ -196,4 +199,10 @@ export function startListeningMeter(): () => void {
   document.addEventListener('visibilitychange', onHide);
   window.addEventListener('pagehide', onHide);
   return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onHide); void flush(); };
+}
+
+/** Opens "Now playing" for a book and starts it. Used by the Resume button and by reminder notifications. */
+export function useStartListening() {
+  const [docId, setDocId] = useState<string | null>(null);
+  return { docId, start: (id: string) => setDocId(id), done: () => setDocId(null) };
 }

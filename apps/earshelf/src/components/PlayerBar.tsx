@@ -5,6 +5,7 @@ import type { SleepSetting } from '@wells/audio-player';
 import { db, queueSync, uid } from '../db';
 import { Sheet } from './Sheet';
 import { NaturalVoice } from './NaturalVoice';
+import { LiveWave } from './LiveWave';
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 const SLEEP: Array<{ label: string; value: SleepSetting | null }> = [
@@ -79,8 +80,10 @@ export function PlayerBar({ onOpenReader, reading, open, onOpenChange }: { onOpe
       {open && (
         <Sheet onClose={() => setOpen(false)} label="Full player" className="full-player">
             <button className="icon-btn sheet-close" onClick={() => setOpen(false)} aria-label="Close player"><ChevronDown size={24} /></button>
+            <p className="eyebrow">Now playing</p>
             <h2 className="fp-title">{s.title}</h2>
             <p className="fp-section">{s.sectionTitle}</p>
+            <LiveWave items={player.getItems()} className="fp-wave" />
             <p className="fp-line reading">{s.utterance?.text}</p>
             {s.error && <p role="alert" className="error-text">{s.error}</p>}
 
@@ -128,7 +131,9 @@ export function PlayerBar({ onOpenReader, reading, open, onOpenChange }: { onOpe
                 <input type="range" min={0} max={1} step={0.05} value={s.volume} onChange={(e) => player.setVolume(Number(e.target.value))} />
               </label>
             </div>
-            <p className="hint">On some phones, device voices pause when the app is in the background. Natural voices keep playing.</p>
+            {s.engine === 'speech'
+              ? <p className="hint">You are listening with your device voice. On some phones it pauses when the screen locks or you leave the app. A natural voice (below) is real audio, so it keeps playing and shows controls on the lock screen.</p>
+              : <p className="hint">Natural voice: this keeps playing with the screen locked, and the lock screen and notification shade show play, pause and skip.</p>}
             <h3 className="sub left">Natural voice</h3>
             <NaturalVoice docId={s.documentId} />
         </Sheet>

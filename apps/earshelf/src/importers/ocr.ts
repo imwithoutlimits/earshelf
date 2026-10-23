@@ -1,4 +1,5 @@
 import type { Imported } from '../pipeline';
+import { titleFromFileName } from '@wells/core';
 import { getSetting, setSetting } from '../db';
 
 const monthKey = () => `usage:ocr:${new Date().toISOString().slice(0, 7)}`;
@@ -15,6 +16,6 @@ export async function ocrImage(file: File, onProgress?: (done: number, total: nu
     onProgress?.(1, 1);
     if (data.text.trim().length < 10) throw new Error('No readable text was found in that image. Try a sharper, well-lit photo.');
     await addOcrUsed(1);
-    return { pages: [data.text], meta: { title: file.name.replace(/\.[^.]+$/, ''), sourceType: 'image' }, fileName: file.name, mime: file.type, blob: file };
+    return { pages: [data.text], meta: { title: titleFromFileName(file.name), sourceType: 'image' }, fileName: file.name, mime: file.type, blob: file };
   } finally { await worker.terminate(); }
 }

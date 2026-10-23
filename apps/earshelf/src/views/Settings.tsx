@@ -5,6 +5,7 @@ import type { ReadingMode } from '@wells/core';
 import { minimumPlanFor } from '@wells/billing/src/plans.ts';
 import { db, deleteAllUserContent, uid } from '../db';
 import { MODE_LABELS, VOICE_PROFILES, player, useHasFeature, usePlan, useSetting, THEMES, type ThemeSetting } from '../hooks';
+import { Reminders } from '../components/Reminders';
 import { NaturalVoice } from '../components/NaturalVoice';
 import { useUser } from '../auth';
 import { ApiError, apiPost, apiUrl, supabase } from '../supabase';
@@ -148,6 +149,8 @@ export function Settings() {
           </select>
         </label>
       </div>
+
+      <Reminders />
 
       <div className="card stack">
         <h2 className="sub">Natural voices</h2>

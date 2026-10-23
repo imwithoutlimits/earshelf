@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity as ActivityIcon, FolderOpen, Library as LibraryIcon, User, WifiOff } from 'lucide-react';
+import { Activity as ActivityIcon, Library as LibraryIcon, User, WifiOff } from 'lucide-react';
+import type { ComponentType } from 'react';
+import { WellsIcon } from './components/WellsIcon';
+import { ResumeLoader } from './components/ResumeLoader';
 import { ensureDefaultWells, getSetting } from './db';
 import { AuthContext, SignIn, useSession } from './auth';
 import { supabase } from './supabase';
@@ -23,9 +26,9 @@ import { Reader } from './views/Reader';
 
 // Search is not a tab. It opens from the icon at the top right of the library screen.
 type View = 'home' | 'wells' | 'activity' | 'settings';
-const NAV: Array<{ id: View; label: string; Icon: typeof LibraryIcon }> = [
+const NAV: Array<{ id: View; label: string; Icon: ComponentType<{ size?: number | string }> }> = [
   { id: 'home', label: 'Library', Icon: LibraryIcon },
-  { id: 'wells', label: 'Wells', Icon: FolderOpen },
+  { id: 'wells', label: 'Wells', Icon: WellsIcon },
   { id: 'activity', label: 'Activity', Icon: ActivityIcon },
   { id: 'settings', label: 'You', Icon: User },
 ];
@@ -47,7 +50,9 @@ export default function App() {
   useAutoIndex(!!session && hasFeature(plan, 'semantic_search') && !!caps?.embeddings, sync.lastSyncedAt);
   useEffect(() => { setMonitorUser(session?.user.id); }, [session?.user.id]);
   const [view, setView] = useState<View>('home');
-  const [reader, setReader] = useState<{ docId: string; blockId?: string; play?: boolean } | null>(null);
+  const [reader, setReader] = useState<{ docId: string; blockId?: string } | null>(null);
+  // Resume and reminder taps start a book straight away and show Now playing, instead of opening the book first.
+  const [starting, setStarting] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
   const [theme] = useSetting<ThemeSetting>('theme', 'system');
@@ -104,6 +109,27 @@ export default function App() {
   useEffect(() => { if (firstRender.current) { firstRender.current = false; return; } if (searching && !reader && !reviewing) return; mainRef.current?.focus({ preventScroll: true }); }, [view, reader?.docId, reviewing, searching]);
 
   const open = (docId: string, blockId?: string) => setReader({ docId, blockId });
+  const startListening = (docId: string) => { setReader(null); setStarting(docId); setFullPlayer(true); };
+  // A reminder tapped while the app is already open arrives as a message from the service worker.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const on = (e: MessageEvent) => {
+      if (e.data?.type !== 'earshelf-open') return;
+      const id = new URL(String(e.data.url), location.href).searchParams.get('continue');
+      if (id) startListening(id);
+    };
+    navigator.serviceWorker.addEventListener('message', on);
+    return () => navigator.serviceWorker.removeEventListener('message', on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // A reminder notification opens the app at /?continue=<book id>.
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('continue');
+    if (!id) return;
+    history.replaceState(null, '', location.pathname);
+    startListening(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const goTo = (id: View) => { setReader(null); setReviewing(false); setSearching(false); setView(id); };
 
   if (!ready) return <div className="splash" role="status">Loading…</div>;
@@ -125,9 +151,9 @@ export default function App() {
       <main className="content" id="main" tabIndex={-1} ref={mainRef}>
         {!online && <div className="banner" role="status"><WifiOff size={16} /> You’re offline. Your library and device voices still work.</div>}
         {online && sync.state === 'error' && <div className="banner" role="alert">Your changes are saved on this device but could not sync yet. <button className="link-btn inline" onClick={() => void syncNow(true)}>Try again</button></div>}
-        {reader ? <Reader docId={reader.docId} focusBlockId={reader.blockId} autoPlay={reader.play} onBack={() => setReader(null)} onOpenPlayer={() => setFullPlayer(true)} /> : reviewing ? <Review onClose={() => setReviewing(false)} onOpen={(d, b) => { setReviewing(false); open(d, b); }} /> : searching ? <Search onOpen={(d, b) => { open(d, b); }} onBack={() => setSearching(false)} /> : (
+        {reader ? <Reader docId={reader.docId} focusBlockId={reader.blockId} onBack={() => setReader(null)} onOpenPlayer={() => setFullPlayer(true)} /> : reviewing ? <Review onClose={() => setReviewing(false)} onOpen={(d, b) => { setReviewing(false); open(d, b); }} /> : searching ? <Search onOpen={(d, b) => { open(d, b); }} onBack={() => setSearching(false)} /> : (
           <>
-            {view === 'home' && <Home onOpen={(d, o) => setReader({ docId: d, play: o?.play })} onImport={() => setImporting(true)} onReview={() => setReviewing(true)} onSearch={() => setSearching(true)} />}
+            {view === 'home' && <Home onOpen={(d) => open(d)} onResume={startListening} startingId={starting} onImport={() => setImporting(true)} onReview={() => setReviewing(true)} onSearch={() => setSearching(true)} />}
             {view === 'wells' && <Wells onOpen={open} />}
             {view === 'activity' && <Activity onOpen={open} onReview={() => setReviewing(true)} />}
             {view === 'settings' && <Settings />}
@@ -135,6 +161,7 @@ export default function App() {
         )}
       </main>
 
+      {starting && <ResumeLoader key={starting} docId={starting} onDone={(ok) => { setStarting(null); if (!ok) setFullPlayer(false); }} />}
       <PlayerBar reading={!!reader} open={fullPlayer} onOpenChange={setFullPlayer} onOpenReader={(docId) => open(docId)} />
 
       <nav className="bottomnav" aria-label="Primary">

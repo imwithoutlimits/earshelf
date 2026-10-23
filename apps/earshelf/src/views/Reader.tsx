@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, Bookmark, Highlighter, List, MoreVertical, Play, Search, SlidersHorizontal, Sparkles, StickyNote, Volume2, X } from 'lucide-react';
-import { chapterFor, chapterStarts, searchDocument } from '@wells/core';
+import { chapterFor, chapterStarts, searchDocument, cleanPages, listSections } from '@wells/core';
 import { utteranceSeconds } from '@wells/audio-player';
 import type { ReadingMode, Utterance, CleanupOptions } from '@wells/core';
 import { db, queueSync, uid } from '../db';
+import { LiveWave } from '../components/LiveWave';
 import { MODE_LABELS, formatClock, loadIntoPlayer, player, useDocStyle, useHasFeature, useLook, useNarration, usePlayer, useUtterances } from '../hooks';
 import { useUser } from '../auth';
 import { ApiError, apiPost } from '../supabase';
@@ -21,7 +22,7 @@ const isFigure = (b: { type: string; text: string }) => b.type === 'caption' && 
 
 type Panel = null | 'contents' | 'search' | 'settings' | 'ai' | 'menu';
 
-export function Reader({ docId, focusBlockId, autoPlay, onBack, onOpenPlayer }: { docId: string; focusBlockId?: string; autoPlay?: boolean; onBack: () => void; onOpenPlayer: () => void }) {
+export function Reader({ docId, focusBlockId, onBack, onOpenPlayer }: { docId: string; focusBlockId?: string; onBack: () => void; onOpenPlayer: () => void }) {
   const doc = useLiveQuery(() => db.docs.get(docId), [docId]);
   const utterances = useUtterances(doc);
   const style = useDocStyle(docId);
@@ -35,6 +36,10 @@ export function Reader({ docId, focusBlockId, autoPlay, onBack, onOpenPlayer }: 
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [cleanup, setCleanup] = useState<CleanupOptions | null>(null);
+  const source = useLiveQuery(() => (panel === 'settings' ? db.sources.get(docId) : undefined), [panel, docId]);
+  const settingsKey = cleanup ? JSON.stringify({ ...cleanup, skipSections: [] }) : '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sections = useMemo(() => (source && cleanup ? listSections(cleanPages(source.pages, { ...cleanup, skipSections: [] })) : undefined), [source, settingsKey]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const focused = useRef(false);
@@ -65,15 +70,6 @@ export function Reader({ docId, focusBlockId, autoPlay, onBack, onOpenPlayer }: 
     return m;
   }, [utterances]);
 
-  // Pressing Resume on the library screen opens the document and starts playing once it is loaded.
-  const started = useRef(false);
-  useEffect(() => { started.current = false; }, [docId]);
-  useEffect(() => {
-    if (!autoPlay || started.current || !mine || !utterances.length) return;
-    started.current = true;
-    if (ps.status !== 'playing' && ps.status !== 'loading') player.play();
-  }, [autoPlay, mine, utterances.length, ps.status]);
-
   const chapter = useMemo(() => {
     if (!doc) return null;
     const sid = (mine ? ps.utterance?.sectionId : undefined) ?? utterances[0]?.sectionId ?? doc.parsed.sections[0]?.id;
@@ -87,20 +83,6 @@ export function Reader({ docId, focusBlockId, autoPlay, onBack, onOpenPlayer }: 
     utterances.forEach((u) => { if (!m.has(u.blockId)) m.set(u.blockId, t); t += utteranceSeconds(u, ps.rate); });
     return m;
   }, [utterances, ps.rate]);
-  // The strip of bars in the dark look: one bar per slice of the document, taller where there is more to say. Tapping a bar jumps there.
-  const bars = useMemo(() => {
-    const len = utterances.length;
-    if (!len) return [] as Array<{ from: number; to: number; h: number }>;
-    const n = Math.min(72, len);
-    const raw = Array.from({ length: n }, (_, i) => {
-      const from = Math.floor((i * len) / n), to = Math.max(from + 1, Math.floor(((i + 1) * len) / n));
-      let w = 0; for (let k = from; k < to && k < len; k++) w += utteranceSeconds(utterances[k], 1);
-      return { from, to, w };
-    });
-    const max = Math.max(...raw.map((r) => r.w), 1);
-    return raw.map((r) => ({ from: r.from, to: r.to, h: 0.2 + 0.8 * (r.w / max) }));
-  }, [utterances]);
-
   // Jump to a block requested from search or activity.
   useEffect(() => {
     if (!focusBlockId || focused.current || !mine) return;
@@ -211,15 +193,7 @@ export function Reader({ docId, focusBlockId, autoPlay, onBack, onOpenPlayer }: 
           <button className="icon-btn" onClick={() => setPanel(panel === 'contents' ? null : 'contents')} aria-label="Contents" aria-pressed={panel === 'contents'}><List size={22} /></button>
           <button className="icon-btn" onClick={() => setPanel(panel === 'menu' || panel === 'ai' || panel === 'search' || panel === 'settings' ? null : 'menu')} aria-label="More options" aria-expanded={panel === 'menu'}><MoreVertical size={22} /></button>
         </div>
-        {look === 'dark' && bars.length > 0 && (
-          <div className="wave" aria-hidden>
-            {bars.map((b, i) => {
-              const at = mine ? ps.index : 0;
-              const cls = at >= b.to ? 'played' : at >= b.from ? 'current' : '';
-              return <button key={i} tabIndex={-1} className={`wave-bar ${cls}`} style={{ height: `${b.h * 100}%` }} onClick={() => { player.seekTo(b.from); setFollow(true); }} />;
-            })}
-          </div>
-        )}
+        {look === 'dark' && utterances.length > 0 && <LiveWave items={utterances} />}
       </header>
 
       {panel === 'menu' && (
@@ -272,7 +246,7 @@ export function Reader({ docId, focusBlockId, autoPlay, onBack, onOpenPlayer }: 
             </select>
             <span className="hint">{MODE_LABELS[doc.readingMode].blurb}</span>
           </label>
-          <CleanupPanel report={doc.report} options={cleanup} onChange={setCleanup} />
+          <CleanupPanel report={doc.report} options={cleanup} onChange={setCleanup} sections={sections} />
           {error && <p role="alert" className="error-text">{error}</p>}
           <button className="btn primary" disabled={busy} onClick={() => void applyCleanup()}>{busy ? 'Cleaning…' : 'Apply cleanup'}</button>
         </div>

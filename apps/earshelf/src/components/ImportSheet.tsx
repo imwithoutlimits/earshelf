@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { FileUp, Link2, ClipboardPaste, X } from 'lucide-react';
-import { analyze, DEFAULT_CLEANUP } from '@wells/core';
+import { analyze, DEFAULT_CLEANUP, cleanPages, listSections } from '@wells/core';
 import type { CleanupOptions, CleanupReport, ReadingMode, ShareIntent } from '@wells/core';
 import { checkUsage } from '@wells/billing/src/plans.ts';
 import { db } from '../db';
@@ -28,22 +28,27 @@ export function ImportSheet({ onClose, onDone, defaultWellId, initial }: { onClo
   const [mode, setMode] = useState<ReadingMode | null>(null);
   const [wellId, setWellId] = useState(defaultWellId ?? '');
   const [title, setTitle] = useState(initial?.kind === 'text' ? initial.title ?? '' : '');
+  const [author, setAuthor] = useState('');
   const [text, setText] = useState(initial?.kind === 'text' ? initial.text : '');
   const [url, setUrl] = useState(initial?.kind === 'url' ? initial.url : '');
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const cancelled = useRef(false);
   const lastAction = useRef<(() => Promise<void>) | null>(null);
+  // The headings in the cleaned text, so whole sections can be skipped. Recomputed only when a cleanup choice other than the skipped sections changes.
+  const flagKey = JSON.stringify({ ...cleanup, skipSections: [] });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sections = useMemo(() => (imp ? listSections(cleanPages(imp.pages, { ...cleanup, skipSections: [] })) : []), [imp, flagKey]);
 
   const ready = (r: Imported) => {
-    setImp(r); setReport(analyze(r.pages)); setTitle(r.meta.title ?? ''); setCleanup({ ...DEFAULT_CLEANUP }); setStage(null);
+    setImp(r); setReport(analyze(r.pages)); setTitle(r.meta.title ?? ''); setAuthor(r.meta.author ?? ''); setCleanup({ ...DEFAULT_CLEANUP }); setStage(null);
   };
   const guard = async (fn: () => Promise<void>) => {
     lastAction.current = fn;
     cancelled.current = false; setError(null);
     const used = await db.docs.count();
     if (!checkUsage(plan, 'documents', used).allowed) {
-      setError(`Your ${plan} plan holds ${checkUsage(plan, 'documents', used).limit} documents. Delete one, or upgrade to add more.`);
+      setError(`Your ${plan} plan holds ${checkUsage(plan, 'documents', used).limit} documents and you have ${used}. Delete one, or upgrade to add more.`);
       return;
     }
     try { await fn(); }
@@ -66,7 +71,7 @@ export function ImportSheet({ onClose, onDone, defaultWellId, initial }: { onClo
     if (!imp) return;
     setStage('Structuring…');
     try {
-      const id = await saveImport({ ...imp, meta: { ...imp.meta, title: title.trim() || imp.meta.title } }, cleanup, mode ?? defaultMode, wellId || undefined);
+      const id = await saveImport({ ...imp, meta: { ...imp.meta, title: title.trim() || imp.meta.title, author: author.trim() || imp.meta.author } }, cleanup, mode ?? defaultMode, wellId || undefined);
       void navigator.storage?.persist?.();
       onDone(id);
     } catch (e) { setStage(null); setError(e instanceof Error ? e.message : 'We could not save this document. Try again.'); }
@@ -115,10 +120,16 @@ export function ImportSheet({ onClose, onDone, defaultWellId, initial }: { onClo
 
         {imp && report && (
           <div className="stack">
-            <label className="field">Title
-              <input className="text-input" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <div className="field-group">
+              <label className="field">Title
+                <input className="text-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Type a title" aria-describedby={title.trim() ? undefined : 'title-hint'} />
+              </label>
+              {!title.trim() && <p id="title-hint" className="hint">We could not find a title in this file. Type one, or the first heading will be used.</p>}
+            </div>
+            <label className="field">Author
+              <input className="text-input" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Optional" />
             </label>
-            <CleanupPanel report={report} options={cleanup} onChange={setCleanup} />
+            <CleanupPanel report={report} options={cleanup} onChange={setCleanup} sections={sections} />
             <label className="field">Reading mode
               <select value={mode ?? defaultMode} onChange={(e) => setMode(e.target.value as ReadingMode)}>
                 {(Object.keys(MODE_LABELS) as ReadingMode[]).map((m) => <option key={m} value={m}>{MODE_LABELS[m].name}</option>)}
