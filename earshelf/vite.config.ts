@@ -1,0 +1,38 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { VitePWA } from 'vite-plugin-pwa';
+
+// Lets the phone's Share menu send a link or text straight into earshelf (installed app, Android and desktop Chrome).
+const shareTarget = { share_target: { action: '/', method: 'GET', params: { title: 'title', text: 'text', url: 'url' } } } as const;
+
+export default defineConfig({
+  plugins: [
+    react(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['icons/*.png', 'icons/*.svg'],
+      manifest: {
+        name: 'earshelf',
+        short_name: 'earshelf',
+        description: 'Import anything you need to read, and listen to it.',
+        ...shareTarget,
+        theme_color: '#315f72',
+        background_color: '#fbfaf7',
+        display: 'standalone',
+        start_url: '/',
+        icons: [
+          { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,mjs}'],
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        navigateFallback: '/index.html',
+        importScripts: ['push-sw.js'], // reminder notifications
+      },
+    }),
+  ],
+  build: { target: 'es2022' },
+});

@@ -1,0 +1,143 @@
+import { ChevronDown, ChevronUp, Bookmark, Moon, Pause, Play, RotateCcw, SkipBack, SkipForward, Volume2, FileText, Rewind, FastForward, SkipForward as Skip } from 'lucide-react';
+import { formatClock as clock, formatDuration, player, useSetting, usePlayer, useVoices } from '../hooks';
+import type { CSSProperties } from 'react';
+import type { SleepSetting } from '@wells/audio-player';
+import { db, queueSync, uid } from '../db';
+import { Sheet } from './Sheet';
+import { NaturalVoice } from './NaturalVoice';
+import { LiveWave } from './LiveWave';
+
+const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
+const SLEEP: Array<{ label: string; value: SleepSetting | null }> = [
+  { label: 'Off', value: null },
+  { label: '15 minutes', value: { kind: 'minutes', minutes: 15 } },
+  { label: '30 minutes', value: { kind: 'minutes', minutes: 30 } },
+  { label: '60 minutes', value: { kind: 'minutes', minutes: 60 } },
+  { label: 'End of section', value: { kind: 'end-of-section' } },
+];
+const sleepLabel = (s: SleepSetting | null) => SLEEP.find((o) => JSON.stringify(o.value) === JSON.stringify(s))?.label ?? 'Off';
+
+/** The mini player sits above the tabs on library screens. Inside the reader it becomes the full transport dock. The full player sheet is opened from either. */
+export function PlayerBar({ onOpenReader, reading, open, onOpenChange }: { onOpenReader: (docId: string) => void; reading: boolean; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const s = usePlayer();
+  const setOpen = onOpenChange;
+  const voices = useVoices();
+  const [voiceURI, setVoiceURI] = useSetting<string | null>('voiceURI', null);
+  const [, setRate] = useSetting('rate', 1);
+  if (!s.documentId || !s.length) return null;
+  const playing = s.status === 'playing' || s.status === 'loading';
+
+  const addBookmark = async () => {
+    if (!s.utterance || !s.documentId) return;
+    const now = Date.now();
+    const id = uid();
+    await db.annotations.add({ id, docId: s.documentId, kind: 'bookmark', blockId: s.utterance.blockId, utteranceIndex: s.index, text: s.utterance.text, createdAt: now, updatedAt: now });
+    await queueSync('bookmarks', id);
+  };
+
+  const cycleSpeed = () => {
+    const at = SPEEDS.findIndex((r) => Math.abs(r - s.rate) < 0.01);
+    const r = SPEEDS[(at + 1) % SPEEDS.length];
+    player.setRate(r); setRate(r);
+  };
+  const elapsed = Math.max(0, s.totalSeconds - s.remainingSeconds);
+
+  return (
+    <>
+      {reading ? (
+        <div className="dock" role="region" aria-label="Player">
+          <input type="range" className="scrubber dock-scrub" min={0} max={Math.max(0, s.length - 1)} value={s.index}
+            onChange={(e) => player.seekTo(Number(e.target.value))} aria-label="Position in document"
+            aria-valuetext={`${formatDuration(s.remainingSeconds)} left`}
+            style={{ '--pos': `${(s.index / Math.max(1, s.length - 1)) * 100}%` } as CSSProperties} />
+          <div className="dock-times" aria-hidden><span>{clock(elapsed)}</span><span>−{clock(s.remainingSeconds)}</span></div>
+          <div className="dock-controls">
+            <button className="play-btn" onClick={() => player.toggle()} aria-label={playing ? 'Pause' : 'Play'} aria-pressed={playing}>
+              {playing ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" />}
+            </button>
+            <button className="tx-btn" onClick={() => player.back(15)} aria-label="Jump back 15 seconds"><span aria-hidden>−15s</span></button>
+            <button className="tx-btn" onClick={() => player.forward(30)} aria-label="Jump ahead 30 seconds"><span aria-hidden>+30s</span></button>
+            <button className="speed-pill" onClick={cycleSpeed} aria-label={`Speed ${s.rate} times. Tap to change`}><span aria-hidden>{s.rate}×</span></button>
+            <button className="icon-btn" onClick={() => void addBookmark()} aria-label="Bookmark this sentence"><Bookmark size={22} /></button>
+            <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Open full player"><ChevronUp size={22} /></button>
+          </div>
+          {s.error && <p role="alert" className="error-text dock-error">{s.error}</p>}
+        </div>
+      ) : (
+      <div className="miniplayer" role="region" aria-label="Player">
+        <button className="mini-main" onClick={() => setOpen(true)} aria-label="Open full player">
+          <span className="mini-title">{s.title}</span>
+          <span className="mini-sub">{s.status === 'loading' ? 'Preparing audio…' : s.sectionTitle || (s.status === 'error' ? s.error : formatDuration(s.remainingSeconds) + ' left')}</span>
+        </button>
+        <button className="icon-btn" onClick={() => player.back(15)} aria-label="Back 15 seconds"><Rewind size={20} /></button>
+        <button className="icon-btn primary" onClick={() => player.toggle()} aria-label={playing ? 'Pause' : 'Play'} aria-pressed={playing}>
+          {playing ? <Pause size={22} /> : <Play size={22} />}
+        </button>
+        <div className="progress-line" style={{ width: `${(s.index / Math.max(1, s.length - 1)) * 100}%` }} aria-hidden />
+      </div>
+      )}
+
+      {open && (
+        <Sheet onClose={() => setOpen(false)} label="Full player" className="full-player">
+            <button className="icon-btn sheet-close" onClick={() => setOpen(false)} aria-label="Close player"><ChevronDown size={24} /></button>
+            <p className="eyebrow">Now playing</p>
+            <h2 className="fp-title">{s.title}</h2>
+            <p className="fp-section">{s.sectionTitle}</p>
+            <LiveWave items={player.getItems()} className="fp-wave" />
+            <p className="fp-line reading">{s.utterance?.text}</p>
+            {s.error && <p role="alert" className="error-text">{s.error}</p>}
+
+            <input type="range" className="scrubber" min={0} max={Math.max(0, s.length - 1)} value={s.index}
+              onChange={(e) => player.seekTo(Number(e.target.value))} aria-label="Position in document"
+              aria-valuetext={`${formatDuration(s.remainingSeconds)} left`} />
+            <div className="fp-times"><span>{Math.round((s.index / Math.max(1, s.length - 1)) * 100)}%</span><span>{formatDuration(s.remainingSeconds)} left</span></div>
+
+            <div className="fp-controls">
+              <button className="icon-btn" onClick={() => player.previous()} aria-label="Previous paragraph"><SkipBack size={24} /></button>
+              <button className="icon-btn" onClick={() => player.back(15)} aria-label="Back 15 seconds"><Rewind size={24} /></button>
+              <button className="icon-btn primary big" onClick={() => player.toggle()} aria-label={playing ? 'Pause' : 'Play'} aria-pressed={playing}>
+                {playing ? <Pause size={30} /> : <Play size={30} />}
+              </button>
+              <button className="icon-btn" onClick={() => player.forward(30)} aria-label="Forward 30 seconds"><FastForward size={24} /></button>
+              <button className="icon-btn" onClick={() => player.nextSection()} aria-label="Next section"><SkipForward size={24} /></button>
+            </div>
+
+            <div className="fp-row">
+              <button className="chip" onClick={() => player.replaySentence()}><RotateCcw size={16} /> Replay sentence</button>
+              <button className="chip" onClick={() => player.replayParagraph()}><RotateCcw size={16} /> Replay paragraph</button>
+              <button className="chip" onClick={() => player.skipHeading()}><Skip size={16} /> Skip heading</button>
+              <button className="chip" onClick={() => void addBookmark()}><Bookmark size={16} /> Bookmark</button>
+              <button className="chip" onClick={() => { setOpen(false); onOpenReader(s.documentId!); }}><FileText size={16} /> Transcript</button>
+            </div>
+
+            <div className="fp-grid">
+              <label>Speed
+                <select value={s.rate} onChange={(e) => { const r = Number(e.target.value); player.setRate(r); setRate(r); }}>
+                  {SPEEDS.map((r) => <option key={r} value={r}>{r}×</option>)}
+                </select>
+              </label>
+              <label><Moon size={14} /> Sleep timer
+                <select value={sleepLabel(s.sleep)} onChange={(e) => player.setSleep(SLEEP.find((o) => o.label === e.target.value)?.value ?? null)}>
+                  {SLEEP.map((o) => <option key={o.label}>{o.label}</option>)}
+                </select>
+              </label>
+              <label>Voice
+                <select value={voiceURI ?? ''} onChange={(e) => { const v = e.target.value || null; setVoiceURI(v); player.setVoice(v); }}>
+                  <option value="">Device default</option>
+                  {voices.map((v) => <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>)}
+                </select>
+              </label>
+              <label><Volume2 size={14} /> Volume
+                <input type="range" min={0} max={1} step={0.05} value={s.volume} onChange={(e) => player.setVolume(Number(e.target.value))} />
+              </label>
+            </div>
+            {s.engine === 'speech'
+              ? <p className="hint">You are listening with your device voice. On some phones it pauses when the screen locks or you leave the app. A natural voice (below) is real audio, so it keeps playing and shows controls on the lock screen.</p>
+              : <p className="hint">Natural voice: this keeps playing with the screen locked, and the lock screen and notification shade show play, pause and skip.</p>}
+            <h3 className="sub left">Natural voice</h3>
+            <NaturalVoice docId={s.documentId} />
+        </Sheet>
+      )}
+    </>
+  );
+}
