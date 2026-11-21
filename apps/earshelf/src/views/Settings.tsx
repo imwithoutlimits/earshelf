@@ -10,7 +10,9 @@ import { NaturalVoice } from '../components/NaturalVoice';
 import { useUser } from '../auth';
 import { ApiError, apiPost, apiUrl, supabase } from '../supabase';
 import { pendingChanges, stopSync, syncNow, useSyncStatus } from '../sync';
-import { checkoutUrl } from '../billing';
+import { openBillingPortal, planStore } from '../billing';
+import { PlanSummary, openPlans } from '@wells/ui';
+import { usePlanInfo } from '@wells/billing/src/react.tsx';
 
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(n > 1e8 ? 0 : 1)} MB`;
 const ago = (t?: number) => (!t ? 'never' : Date.now() - t < 60_000 ? 'just now' : `${Math.round((Date.now() - t) / 60_000)} min ago`);
@@ -18,6 +20,7 @@ const ago = (t?: number) => (!t ? 'never' : Date.now() - t < 60_000 ? 'just now'
 export function Settings() {
   const user = useUser();
   const plan = usePlan();
+  const planInfo = usePlanInfo(planStore);
   const sync = useSyncStatus();
   const pending = useLiveQuery(() => db.outbox.count(), [], 0);
   const canPron = useHasFeature('pronunciation');
@@ -35,6 +38,7 @@ export function Settings() {
   const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null);
   const [confirm, setConfirm] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [billNote, setBillNote] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { void navigator.storage?.estimate?.().then((e) => setUsage({ used: e.usage ?? 0, quota: e.quota ?? 0 })); }, [prons.length]);
@@ -69,8 +73,6 @@ export function Settings() {
     }
   };
 
-  const up = (p: 'plus' | 'pro') => user ? checkoutUrl(p, { id: user.user.id, email: user.user.email }) : null;
-
   return (
     <section className="page">
       <header className="page-head"><h1>Profile</h1></header>
@@ -97,14 +99,8 @@ export function Settings() {
 
       <div className="card stack">
         <h2 className="sub">Plan</h2>
-        <p>You’re on the <strong>{plan}</strong> plan. {plan === 'free' ? 'Free includes 5 documents, device voices and basic cleanup.' : plan === 'plus' ? 'Plus includes natural voices, OCR, offline audio, summaries and sync.' : 'Pro includes everything, including questions, quizzes and audio export.'}</p>
-        {user && plan !== 'pro' && (
-          <div className="row-end">
-            {plan === 'free' && up('plus') && <a className="btn" href={up('plus')!}>Upgrade to Plus</a>}
-            {up('pro') && <a className="btn primary" href={up('pro')!}>Upgrade to Pro</a>}
-          </div>
-        )}
-        {plan !== 'free' && import.meta.env.VITE_LS_PORTAL_URL && <a className="link-btn" href={import.meta.env.VITE_LS_PORTAL_URL}>Manage billing</a>}
+        <PlanSummary product="earshelf" info={planInfo} signedIn={!!user} onSeePlans={openPlans} onManage={() => void openBillingPortal().catch((e) => setBillNote(e instanceof Error ? e.message : 'Could not open the billing page.'))} onSignIn={() => { localStorage.removeItem('earshelf-local-only'); location.reload(); }} />
+        {billNote && <p role="alert" className="error-text">{billNote}</p>}
         <p className="hint">Your plan updates a moment after payment, once it is confirmed.</p>
       </div>
 

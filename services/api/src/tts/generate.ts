@@ -10,6 +10,8 @@ export interface ChunkRequest {
   userId: string; docId: string; docUpdatedAt: number; chunkIndex: number;
   engine: TtsEngine; voice: string; mode: ReadingMode; pauseScale: number; prons: PronunciationEntry[];
   overrides?: NarrationOverrides; dialogueVoice?: string;
+  /** Free preview: never read or write the stored audio cache (nothing may pile up on a free plan). The audio comes back inline. */
+  ephemeral?: boolean;
   beforeSynthesis: (estimatedMinutes: number) => Promise<void>;
 }
 export interface ChunkResult {
@@ -32,7 +34,7 @@ export async function generateChunk(r: ChunkRequest): Promise<ChunkResult> {
 
   const cacheKey = audioCacheKey({ docId: r.docId, docUpdatedAt: r.docUpdatedAt, provider: r.engine.id, voice: r.voice, mode: r.mode, pauseScale: r.pauseScale, pronunciations: r.prons, overrides: r.overrides, dialogueVoice: r.dialogueVoice });
   const base = `${r.userId}/${r.docId}/${cacheKey}/${range.index}`;
-  const side = await storageDownload('audio', `${base}.json`);
+  const side = r.ephemeral ? null : await storageDownload('audio', `${base}.json`);
   if (side) {
     const meta = JSON.parse(side.toString('utf8')) as { durationMs: number; items: ChunkResult['items'] };
     return { chunkIndex: range.index, chunkCount: plan.length, start: range.start, end: range.end, durationMs: meta.durationMs, items: meta.items, url: await signedUrl('audio', `${base}.mp3`), cached: true, cacheKey };
@@ -42,6 +44,7 @@ export async function generateChunk(r: ChunkRequest): Promise<ChunkResult> {
   await r.beforeSynthesis(Math.max(1, Math.ceil(slice.reduce((n, u) => n + estimateSeconds(u), 0) / 60)));
   const rendered = await renderChunk(slice, range.start, r.engine, r.voice, undefined, r.dialogueVoice);
   const mp3 = await pcmToMp3(rendered.samples, rendered.sampleRate);
+  if (r.ephemeral) return { chunkIndex: range.index, chunkCount: plan.length, start: range.start, end: range.end, durationMs: rendered.durationMs, items: rendered.items, url: `data:audio/mpeg;base64,${mp3.toString('base64')}`, cached: false, cacheKey };
   await storageUpload('audio', `${base}.mp3`, mp3, 'audio/mpeg');
   await storageUpload('audio', `${base}.json`, JSON.stringify({ durationMs: rendered.durationMs, items: rendered.items }), 'application/json');
   void rest('audio_assets', { method: 'POST', prefer: 'return=minimal', body: { user_id: r.userId, product: 'earshelf', owner_type: 'document', owner_id: r.docId, storage_path: `${base}.mp3`, provider: r.engine.id, voice_id: r.voice, duration_ms: rendered.durationMs, bytes: mp3.length } }).catch(() => {});

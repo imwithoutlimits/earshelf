@@ -14,6 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_LS_CHECKOUT_PLUS?: string;
   readonly VITE_LS_CHECKOUT_PRO?: string;
   readonly VITE_LS_PORTAL_URL?: string;
+  /** "off" hides the Continue with Google button until the Google provider is set up in Supabase. */
+  readonly VITE_GOOGLE_SIGNIN?: string;
   readonly VITE_SENTRY_DSN?: string;
   readonly VITE_RELEASE?: string;
 }

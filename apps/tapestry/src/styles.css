@@ -36,3 +36,37 @@ button{font:inherit;color:inherit;cursor:pointer}h1,h2,h3,p{margin:0}:focus-visi
 .sheet h2{font:500 26px/1.1 var(--s)}.auth{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px}.auth-card{width:100%;max-width:380px}.brand-big{font:500 44px/1 var(--s)}.field{display:flex;flex-direction:column;gap:6px;font-weight:600}.text-input{min-height:48px;border-radius:12px;border:1.5px solid var(--line);background:none;color:var(--ink);padding:0 14px;font:400 16px var(--f)}.hint{color:var(--mut);font-size:14px}.error-text{color:var(--tx)}.link-btn{background:none;border:0;color:var(--tx);min-height:44px;font-weight:600;text-align:left}.auth-links{display:flex;flex-direction:column}
 .hide{display:inline-block;border-bottom:2px solid var(--line);color:transparent;user-select:none;min-width:2ch}
 @media (min-width:900px){.app{max-width:none;flex-direction:row}.app>.main{flex:1;max-width:640px;margin:0 auto;display:flex;flex-direction:column;min-width:0}.tabs{order:0;flex-direction:column;width:200px;border-top:0;border-right:1px solid var(--line);padding:24px 12px;justify-content:flex-start;gap:4px}.tabs button{flex:none;flex-direction:row;gap:12px;font-size:15px;padding:0 14px;justify-content:flex-start;border-radius:12px}.overlay{max-width:640px;left:200px;right:0}}
+
+/* ---- upgrade screens, trial bar, Google button (markup from @wells/ui and @wells/auth) ---- */
+.up{display:flex;flex-direction:column;gap:14px}
+.up-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.up-lead{color:var(--mut)}
+.up-toggle{display:inline-flex;align-self:center;padding:4px;border:1px solid var(--line);border-radius:99px}
+.up-toggle button{min-height:44px;padding:0 20px;border:0;border-radius:99px;background:none}
+.up-toggle button[aria-pressed=true]{background:var(--acc);color:var(--fg);font-weight:700}
+.up-cards{display:grid;gap:12px}
+@media (min-width:640px){.up-cards{grid-template-columns:1fr 1fr}}
+.up-card{display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--surf)}
+.up-card.is-current{border-color:var(--acc)}
+.up-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.up-card-head h3{font:500 22px/1.1 var(--s)}
+.up-badge{font-size:12px;font-weight:700;padding:2px 10px;border-radius:99px;background:var(--acc);color:var(--fg)}
+.up-price{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap}.up-price strong{font:500 34px/1 var(--s)}.up-price span{color:var(--mut)}
+.up-save{font-style:normal;font-size:12px;font-weight:700;margin-left:6px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--tx)}
+.up-tag{color:var(--mut);font-size:14px}
+.up-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;flex:1}
+.up-list li{position:relative;padding-left:22px;font-size:15px}
+.up-list li::before{content:"✓";position:absolute;left:0;color:var(--tx);font-weight:700}
+.up-soon{margin-left:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:1px 7px;border-radius:99px;border:1px solid var(--line);color:var(--mut);white-space:nowrap}
+.up-fine{font-size:13px;color:var(--mut)}
+.up-error{color:#ff9a8c}[data-theme=light] .up-error{color:#a3261a}
+.up-free{align-self:center}
+.up-sheet{max-width:720px}
+.up-banner{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 6px 16px;margin:8px 16px 0;border-radius:99px;background:var(--acc);color:var(--fg);font-size:14px;font-weight:700}
+.up-banner.up-soft{background:none;color:var(--ink);border:1px solid var(--line)}
+.up-banner button{min-height:44px;padding:0 16px;border:0;border-radius:99px;background:var(--fg);color:var(--acc);font:inherit;font-weight:700}
+.up-banner.up-soft button{background:var(--acc);color:var(--fg)}
+.up-summary{display:flex;flex-direction:column;gap:10px}
+.up-summary-plan{display:flex;align-items:baseline;gap:10px}.up-summary-plan span{color:var(--mut)}.up-summary-plan strong{font:500 28px/1 var(--s)}
+.up-actions{display:flex;gap:10px;flex-wrap:wrap}
+.auth-google{width:100%}
+.auth-or{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:13px;margin:0}.auth-or::before,.auth-or::after{content:"";flex:1;height:1px;background:var(--line)}.auth-or span{white-space:nowrap}

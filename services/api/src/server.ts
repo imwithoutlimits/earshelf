@@ -2,11 +2,11 @@ import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { sanitizeOverrides } from '../../../packages/core/src/index.ts';
 import type { NarrationOverrides, PronunciationEntry, ReadingMode } from '../../../packages/core/src/index.ts';
-import type { Feature, Plan } from '../../../packages/billing/src/plans.ts';
+import { hasFeature, type Feature, type Plan } from '../../../packages/billing/src/plans.ts';
 import { config } from './config.ts';
 import { deleteUserContent, getUser, rest } from './supa.ts';
-import { HttpError, consume, getPlan, requireFeature } from './entitlements.ts';
-import { processWebhook } from './billing.ts';
+import { HttpError, consume, getPlan, getPlanInfo, requireFeature } from './entitlements.ts';
+import { createCheckout, openPortal, processCreemWebhook, processWebhook } from './billing.ts';
 import { fetchArticle } from './article.ts';
 import { engineFor, enginesFor } from './tts/engines.ts';
 import { generateChunk, loadDocument } from './tts/generate.ts';
@@ -17,12 +17,13 @@ import { explain } from './ai/explain.ts';
 import { indexDocument, makeEmbedder, realSearchRpc, replaceChunks, semanticSearch } from './semantic.ts';
 import { jobStatus, startExport } from './exportJob.ts';
 import { report } from './monitor.ts';
+import { logStartupReport, probeKokoro, setupReport } from './diagnostics.ts';
 import { tapestryRoutes } from './tapestry/routes.ts';
 import { earshelfActivityRoutes } from './earshelf/activity.ts';
 import { earshelfPushRoutes, startPushScheduler } from './earshelf/push.ts';
 
 type Json = Record<string, unknown>;
-interface Ctx { user: { id: string }; body: Json; query: URLSearchParams; plan: () => Promise<Plan> }
+interface Ctx { user: { id: string; email?: string }; body: Json; query: URLSearchParams; origin: string; plan: () => Promise<Plan> }
 interface Route { auth: boolean; run: (c: Ctx) => Promise<unknown> }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -41,7 +42,7 @@ function limit(key: string, max: number, windowMs: number) {
 const docId = (b: Json) => { if (typeof b.documentId !== 'string' || !UUID.test(b.documentId)) throw bad('Missing or invalid documentId.'); return b.documentId; };
 const prons = (b: Json): PronunciationEntry[] => (Array.isArray(b.pronunciations) ? (b.pronunciations as Json[]).filter((p) => typeof p.term === 'string' && typeof p.say === 'string').slice(0, 500).map((p) => ({ term: p.term as string, say: p.say as string })) : []);
 
-/** Reads the person's narration choices. A second voice for dialogue is a Pro feature. */
+/** Reads the person's narration choices. A second voice for dialogue is a Plus feature. */
 function narrationFrom(body: Json, plan: Plan): { overrides: NarrationOverrides; dialogueVoice?: string } {
   const overrides = sanitizeOverrides(body.narration);
   const dv = typeof body.dialogueVoice === 'string' ? body.dialogueVoice.trim() : '';
@@ -71,6 +72,8 @@ async function aiRun<T>(c: Ctx, feature: Feature, kind: string, fn: (ai: NonNull
 
 const routes: Record<string, Route> = {
   'GET /health': { auth: false, run: async () => ({ ok: true }) },
+  // Open this in a browser when something is wrong: it says which settings are missing and whether the voice engine answers. Yes/no only, no secrets.
+  'GET /status': { auth: false, run: async () => { const r = setupReport(); return { ok: r.problems.length === 0, problems: r.problems, warnings: r.warnings, settings: r.settings, kokoro: await probeKokoro(), time: new Date().toISOString() }; } },
 
   'GET /v1/capabilities': { auth: true, run: async (c) => ({
     plan: await c.plan(),
@@ -78,6 +81,20 @@ const routes: Record<string, Route> = {
     ai: !!getAiProvider(),
     embeddings: !!makeEmbedder(),
   }) },
+
+  // Plan, trial and billing. The apps ask this first; it also starts the person's one 7-day trial if they have not had it yet.
+  'GET /v1/plan': { auth: true, run: async (c) => {
+    const product = c.query.get('product') === 'tapestry' ? 'tapestry' : 'earshelf';
+    return { product, ...(await getPlanInfo(c.user.id, product, { startTrial: true })) };
+  } },
+  'POST /v1/billing/checkout': { auth: true, run: async (c) => {
+    limit(`checkout:${c.user.id}`, 20, 3600_000);
+    return createCheckout({ userId: c.user.id, email: c.user.email, body: c.body, origin: c.origin });
+  } },
+  'POST /v1/billing/portal': { auth: true, run: async (c) => {
+    limit(`portal:${c.user.id}`, 20, 3600_000);
+    return openPortal({ userId: c.user.id, body: c.body });
+  } },
 
   'POST /v1/account/delete-content': { auth: true, run: async (c) => { await deleteUserContent(c.user.id, 'earshelf'); return { ok: true }; } },
 
@@ -104,9 +121,11 @@ const routes: Record<string, Route> = {
 
   'POST /v1/chunks': { auth: true, run: async (c) => {
     const plan = await c.plan();
-    requireFeature(plan, 'natural_tts');
     const e = engineFor(String(c.body.provider ?? ''), c.user.id);
     if (!e) throw new HttpError(404, 'no_such_provider', 'That voice provider is not available.');
+    // Free plan: a daily preview of the free Kokoro voice only. Plus and Pro have the full natural voices.
+    const preview = !hasFeature(plan, 'natural_tts');
+    if (preview && e.id !== 'kokoro') throw new HttpError(402, 'upgrade_required', 'This voice needs the plus plan. The free preview uses the Kokoro voice.');
     const mode = c.body.mode as ReadingMode;
     const idx = Number(c.body.chunkIndex), scale = Number(c.body.pauseScale ?? 1), updated = Number(c.body.updatedAt);
     if (!MODES.includes(mode) || !Number.isInteger(idx) || idx < 0 || !(scale >= 0.5 && scale <= 2) || !Number.isFinite(updated) || typeof c.body.voice !== 'string') throw bad('Invalid audio request.');
@@ -116,7 +135,8 @@ const routes: Record<string, Route> = {
       ...narr,
       userId: c.user.id, docId: docId(c.body), docUpdatedAt: updated, chunkIndex: idx, engine: e, voice: c.body.voice, mode, pauseScale: scale,
       prons: plan === 'free' ? [] : prons(c.body),
-      beforeSynthesis: async (minutes) => { await consume(c.user.id, plan, 'server_tts_minutes', minutes); },
+      ephemeral: preview,
+      beforeSynthesis: async (minutes) => { await consume(c.user.id, plan, preview ? 'kokoro_preview_minutes' : 'server_tts_minutes', minutes); },
     });
   } },
 
@@ -172,6 +192,7 @@ const routes: Record<string, Route> = {
     const mode = c.body.mode as ReadingMode, scale = Number(c.body.pauseScale ?? 1), updated = Number(c.body.updatedAt);
     const format = c.body.format === 'm4b' ? 'm4b' : 'mp3';
     if (!MODES.includes(mode) || !(scale >= 0.5 && scale <= 2) || !Number.isFinite(updated) || typeof c.body.voice !== 'string') throw bad('Invalid export request.');
+    await consume(c.user.id, plan, 'audio_exports', 1);
     const jobId = await startExport({
       ...narrationFrom(c.body, plan),
       userId: c.user.id, docId: docId(c.body), docUpdatedAt: updated, engine: e, voice: c.body.voice, mode, pauseScale: scale, format,
@@ -194,17 +215,17 @@ Object.assign(routes, tapestryRoutes({ limit, bad }));
 Object.assign(routes, earshelfActivityRoutes({ limit, bad }));
 Object.assign(routes, earshelfPushRoutes({ limit, bad }));
 
-const tokenCache = new Map<string, { id: string; exp: number }>();
-async function authenticate(req: IncomingMessage): Promise<{ id: string }> {
+const tokenCache = new Map<string, { id: string; email?: string; exp: number }>();
+async function authenticate(req: IncomingMessage): Promise<{ id: string; email?: string }> {
   const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
   if (!m) throw new HttpError(401, 'unauthorized', 'Sign in to use this.');
   const hit = tokenCache.get(m[1]);
-  if (hit && hit.exp > Date.now()) return { id: hit.id };
+  if (hit && hit.exp > Date.now()) return { id: hit.id, email: hit.email };
   const u = await getUser(m[1]);
   if (!u) throw new HttpError(401, 'unauthorized', 'Your session has expired. Sign in again.');
-  tokenCache.set(m[1], { id: u.id, exp: Date.now() + 60_000 });
+  tokenCache.set(m[1], { id: u.id, email: u.email, exp: Date.now() + 60_000 });
   if (tokenCache.size > 2000) tokenCache.clear();
-  return { id: u.id };
+  return { id: u.id, email: u.email };
 }
 
 async function readBody(req: IncomingMessage, max = 2_000_000): Promise<string> {
@@ -229,6 +250,13 @@ createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   try {
     if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
+    if (req.method === 'POST' && url.pathname === '/webhooks/creem') {
+      const raw = await readBody(req);
+      const out = await processCreemWebhook(raw, req.headers['creem-signature'] as string | undefined);
+      if (out.status === 200 && out.result.ignored) console.log(`creem webhook ${out.result.eventName} ignored: ${out.result.ignored}`);
+      res.writeHead(out.status, { 'Content-Type': 'application/json' }).end(JSON.stringify(out.status === 200 ? { ok: true, duplicate: out.result.duplicate } : { error: out.error }));
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/webhooks/lemonsqueezy') {
       const raw = await readBody(req);
       const out = await processWebhook(raw, req.headers['x-signature'] as string | undefined);
@@ -237,11 +265,11 @@ createServer(async (req, res) => {
     }
     const route = routes[`${req.method} ${url.pathname}`];
     if (!route) { res.writeHead(404, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'not_found' })); return; }
-    const user = route.auth ? await authenticate(req) : { id: '' };
+    const user: { id: string; email?: string } = route.auth ? await authenticate(req) : { id: '' };
     let body: Json = {};
     if (req.method === 'POST') { try { body = JSON.parse((await readBody(req)) || '{}') as Json; } catch (e) { if (e instanceof HttpError) throw e; throw bad('Body must be JSON.'); } }
     let planP: Promise<Plan> | null = null;
-    const out = await route.run({ user, body, query: url.searchParams, plan: () => (planP ??= getPlan(user.id, url.pathname.startsWith('/v1/tapestry/') ? 'tapestry' : 'earshelf')) });
+    const out = await route.run({ user, body, query: url.searchParams, origin: String(req.headers.origin ?? ''), plan: () => (planP ??= getPlan(user.id, url.pathname.startsWith('/v1/tapestry/') ? 'tapestry' : 'earshelf')) });
     if (out && typeof out === 'object' && '__binary' in out) {
       const b = out as { __binary: Buffer; type: string };
       res.writeHead(200, { 'Content-Type': b.type, 'Content-Length': b.__binary.length }).end(b.__binary);
@@ -253,6 +281,7 @@ createServer(async (req, res) => {
     res.writeHead(500, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'server_error', message: 'Something went wrong on our side. Try again in a moment.' }));
   }
 }).listen(config.port, () => console.log(`wells api (earshelf + tapestry) listening on ${config.port}`));
+logStartupReport();
 startPushScheduler();
 
 process.on('uncaughtException', (e) => { console.error('uncaught', e); report(e, 'uncaughtException'); });

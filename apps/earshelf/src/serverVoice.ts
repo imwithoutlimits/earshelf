@@ -80,7 +80,8 @@ export function installServerVoice() {
     const s = await voiceSettings();
     if (!s.on || !s.provider || !s.voice) { if (loaded.size) { loaded.clear(); publish(); } return; }
     if (!supabase || !apiUrl) throw new Error('The earshelf server is not connected.');
-    if (!hasFeature(await currentPlan(), 'natural_tts')) throw new Error('Natural voices are included with Plus.');
+    // Free plan: a daily preview of the free Kokoro voice only. Everything else needs Plus.
+    if (!hasFeature(await currentPlan(), 'natural_tts') && s.provider !== 'kokoro') throw new Error('Natural voices are included with Plus. The free preview uses the Kokoro voice.');
     const ci = chunkIndexFor(a.plan, index);
     if (ci < 0) return;
     await ensureChunk(ci);
