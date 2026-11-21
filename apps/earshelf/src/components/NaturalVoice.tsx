@@ -3,6 +3,7 @@ import { Download, FileAudio, Lock, Play, Trash2 } from 'lucide-react';
 import { hasFeature } from '@wells/billing/src/plans.ts';
 import { apiBlob, ApiError } from '../supabase';
 import { useUser } from '../auth';
+import { openPlans } from '@wells/ui';
 import { usePlan, useSetting } from '../hooks';
 import { downloadDocumentAudio, downloadStats, exportStatus, removeDownloads, startAudioExport, useCapabilities, useVoices as useServerVoices, type ExportStatus } from '../serverVoice';
 
@@ -22,7 +23,11 @@ export function NaturalVoice({ docId }: { docId?: string }) {
   const cancel = useRef({ cancelled: false });
   const audio = useRef<HTMLAudioElement | null>(null);
 
-  useEffect(() => { if (caps && caps.engines.length && !caps.engines.some((e) => e.id === provider)) setProvider(caps.engines[0].id); }, [caps, provider, setProvider]);
+  useEffect(() => {
+    if (!caps || !caps.engines.length) return;
+    const allowed = hasFeature(plan, 'natural_tts') ? caps.engines : caps.engines.filter((e) => e.id === 'kokoro');
+    if (allowed.length && !allowed.some((e) => e.id === provider)) setProvider(allowed[0].id);
+  }, [caps, plan, provider, setProvider]);
   useEffect(() => { if (voices.length && !voices.some((v) => v.id === voice)) setVoice(voices[0].id); }, [voices, voice, setVoice]);
   useEffect(() => { if (dialogueVoice && voices.length && !voices.some((v) => v.id === dialogueVoice)) setDialogueVoice(''); }, [voices, dialogueVoice, setDialogueVoice]);
   useEffect(() => { if (docId) void downloadStats(docId).then(setStats); }, [docId, busy]);
@@ -30,7 +35,10 @@ export function NaturalVoice({ docId }: { docId?: string }) {
   if (!user) return <p className="hint">Sign in to use natural voices. They need your account and a connection to the earshelf server.</p>;
   if (!caps) return <p className="hint" role="status">Checking for natural voices… If this stays here, the app could not reach the earshelf server, so check your connection. (Owner: check that the API address is set for this app and the API is running.)</p>;
   if (!caps.engines.length) return <p className="hint">The server is reachable, but no natural voice engine is running on it yet. (Owner: start your Kokoro service and set <code>TTS_KOKORO_HOSTPORT</code> on the API service to its address, for example <code>kokoro:8880</code>, then redeploy the API.)</p>;
-  const canVoice = hasFeature(plan, 'natural_tts');
+  const full = hasFeature(plan, 'natural_tts');
+  // Free plan: a daily preview of the free Kokoro voice only.
+  const engines = full ? caps.engines : caps.engines.filter((e) => e.id === 'kokoro');
+  const canVoice = full || engines.length > 0;
   const canOffline = hasFeature(plan, 'offline_audio');
   const fail = (e: unknown) => setMsg(e instanceof ApiError || e instanceof Error ? e.message : 'Something went wrong. Try again.');
 
@@ -51,17 +59,17 @@ export function NaturalVoice({ docId }: { docId?: string }) {
 
   return (
     <div className="stack">
-      {!canVoice && <p className="locked"><Lock size={16} /> Natural voices are included with Plus.</p>}
+      {!full && <UpgradeNote>{canVoice ? 'Free plan: 20 minutes a day of the natural Kokoro voice. Plus has no daily limit.' : 'Natural voices are included with Plus.'}</UpgradeNote>}
       <label className="check-row"><input type="checkbox" checked={on && canVoice} disabled={!canVoice} onChange={(e) => setOn(e.target.checked)} /> Use a natural voice when listening</label>
       <div className="inline-form">
         <label className="field grow">Engine
-          <select value={provider} onChange={(e) => setProvider(e.target.value)}>{caps.engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</select>
+          <select value={provider} onChange={(e) => setProvider(e.target.value)}>{(engines.length ? engines : caps.engines).map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</select>
         </label>
         <label className="field grow">Voice
           <select value={voice} onChange={(e) => setVoice(e.target.value)}>{voices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
         </label>
       </div>
-      {!hasFeature(plan, 'multi_speaker') ? <p className="locked"><Lock size={16} /> A second voice for dialogue is included with Pro.</p> : (
+      {!hasFeature(plan, 'multi_speaker') ? <UpgradeNote>A second voice for dialogue is included with Plus.</UpgradeNote> : (
         <label className="field">Voice for quoted speech
           <select value={dialogueVoice} onChange={(e) => setDialogueVoice(e.target.value)} disabled={!canVoice}>
             <option value="">Same voice for everything</option>
@@ -75,7 +83,7 @@ export function NaturalVoice({ docId }: { docId?: string }) {
       </div>
       {docId && (
         <div className="stack">
-          {!canOffline ? <p className="locked"><Lock size={16} /> Offline audio is included with Plus.</p> : progress ? (
+          {!canOffline ? <UpgradeNote>Offline audio is included with Plus.</UpgradeNote> : progress ? (
             <div><span className="bar" aria-hidden><span style={{ width: `${(progress.done / progress.total) * 100}%` }} /></span>
               <p className="hint" role="status">Downloading part {Math.min(progress.done + 1, progress.total)} of {progress.total}…</p>
               <button className="btn" onClick={() => { cancel.current.cancelled = true; }}>Stop</button></div>
@@ -92,6 +100,11 @@ export function NaturalVoice({ docId }: { docId?: string }) {
       {msg && <p role="alert" className="error-text">{msg}</p>}
     </div>
   );
+}
+
+/** A locked-feature line with a way to fix it. */
+function UpgradeNote({ children }: { children: React.ReactNode }) {
+  return <p className="locked"><Lock size={16} /> <span>{children}</span> <button type="button" className="link-btn inline" onClick={openPlans}>See plans</button></p>;
 }
 
 const STATE_LABEL: Record<string, string> = { queued: 'Waiting to start', generating: 'Creating the audio', packaging: 'Adding chapters', ready: 'Ready', failed: 'Something went wrong' };
@@ -123,7 +136,7 @@ function ExportBox({ docId, allowed, ready }: { docId: string; allowed: boolean;
   return (
     <div className="stack export-box">
       <h3 className="sub left">Audiobook file</h3>
-      {!allowed ? <p className="locked"><Lock size={16} /> Exporting an audio file is included with Pro.</p> : (
+      {!allowed ? <UpgradeNote>Exporting an audio file is included with Plus (5 a month). Pro has no limit.</UpgradeNote> : (
         <>
           {!job && (
             <div className="row-end">

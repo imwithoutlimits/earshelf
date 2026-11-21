@@ -1,3 +1,5 @@
+import { creemProductMap } from '../../../packages/billing/src/creem.ts';
+
 const e = (k: string, d = ''): string => process.env[k] ?? d;
 const list = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
 
@@ -9,6 +11,8 @@ export const config = {
   serviceKey: e('SUPABASE_SECRET_KEY') || e('SUPABASE_SERVICE_ROLE_KEY'),
   allowedOrigins: list(e('ALLOWED_ORIGINS')),
   ls: { secret: e('LEMON_SQUEEZY_SIGNING_SECRET'), plus: e('LS_VARIANT_EARSHELF_PLUS'), pro: e('LS_VARIANT_EARSHELF_PRO'), tapestryPlus: e('LS_VARIANT_TAPESTRY_PLUS'), tapestryPro: e('LS_VARIANT_TAPESTRY_PRO') },
+  // Creem is the payment provider. Lemon Squeezy above is kept only so an old webhook does not break; new sales go through Creem.
+  creem: { apiKey: e('CREEM_API_KEY'), webhookSecret: e('CREEM_WEBHOOK_SECRET'), testMode: e('CREEM_TEST_MODE') === 'true', products: creemProductMap(process.env) },
   tapestry: { translationId: e('TAPESTRY_TRANSLATION_ID', 'engwebp'), adminUserIds: new Set(list(e('TAPESTRY_ADMIN_USER_IDS'))) },
   sentryDsn: e('SENTRY_DSN'),
   embed: { base: e('EMBED_BASE_URL').replace(/\/$/, ''), key: e('EMBED_API_KEY'), model: e('EMBED_MODEL', 'text-embedding-3-small'), dims: 384 },

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Activity as ActivityIcon, Library as LibraryIcon, User, WifiOff } from 'lucide-react';
 import type { ComponentType } from 'react';
+import { PlanHost } from '@wells/ui';
 import { WellsIcon } from './components/WellsIcon';
+import { openBillingPortal, planStore, startCheckout } from './billing';
 import { ResumeLoader } from './components/ResumeLoader';
 import { ensureDefaultWells, getSetting } from './db';
 import { AuthContext, SignIn, useSession } from './auth';
@@ -149,6 +151,7 @@ export default function App() {
       </nav>
 
       <main className="content" id="main" tabIndex={-1} ref={mainRef}>
+        <PlanHost product="earshelf" store={planStore} checkout={startCheckout} portal={openBillingPortal} />
         {!online && <div className="banner" role="status"><WifiOff size={16} /> You’re offline. Your library and device voices still work.</div>}
         {online && sync.state === 'error' && <div className="banner" role="alert">Your changes are saved on this device but could not sync yet. <button className="link-btn inline" onClick={() => void syncNow(true)}>Try again</button></div>}
         {reader ? <Reader docId={reader.docId} focusBlockId={reader.blockId} onBack={() => setReader(null)} onOpenPlayer={() => setFullPlayer(true)} /> : reviewing ? <Review onClose={() => setReviewing(false)} onOpen={(d, b) => { setReviewing(false); open(d, b); }} /> : searching ? <Search onOpen={(d, b) => { open(d, b); }} onBack={() => setSearching(false)} /> : (

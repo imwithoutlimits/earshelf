@@ -4,7 +4,9 @@ import { PlayerController } from '@wells/audio-player';
 import { buildUtterances, pickWellStyle, sanitizeOverrides, scaledNarration } from '@wells/core';
 import type { NarrationOverrides } from '@wells/core';
 import type { ReadingMode, Utterance } from '@wells/core';
-import { hasFeature, type Feature, type Plan } from '@wells/billing/src/plans.ts';
+import { hasFeature, higherPlan, type Feature, type Plan } from '@wells/billing/src/plans.ts';
+import { usePlanInfo } from '@wells/billing/src/react.tsx';
+import { planStore } from './billing';
 import { localDay } from '@wells/activity';
 import { syncListeningSoon } from './activitySync';
 import { refreshPushSoon } from './push';
@@ -25,15 +27,16 @@ export function useSetting<T>(key: string, fallback: T): [T, (v: T) => void] {
   return [value, (v: T) => { void setSetting(key, v); }];
 }
 
-/** Plan is the entitlement written by the verified billing webhook and synced down. Free until then. */
+/** What the person can use now: what they pay for (written by the verified payment message and synced down) or their running free trial, whichever is higher. Free until then. */
 export function usePlan(): Plan {
   const rec = useLiveQuery(() => db.settings.get('plan'), []);
+  const info = usePlanInfo(planStore);
   if (import.meta.env.DEV && import.meta.env.VITE_DEV_PLAN) return import.meta.env.VITE_DEV_PLAN;
-  return (rec?.value as Plan | undefined) ?? 'free';
+  return higherPlan((rec?.value as Plan | undefined) ?? 'free', info.plan);
 }
 export async function currentPlan(): Promise<Plan> {
   if (import.meta.env.DEV && import.meta.env.VITE_DEV_PLAN) return import.meta.env.VITE_DEV_PLAN;
-  return ((await db.settings.get('plan'))?.value as Plan | undefined) ?? 'free';
+  return higherPlan(((await db.settings.get('plan'))?.value as Plan | undefined) ?? 'free', planStore.get().plan);
 }
 export function useHasFeature(f: Feature): boolean { return hasFeature(usePlan(), f); }
 

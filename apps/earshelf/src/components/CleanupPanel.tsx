@@ -8,7 +8,7 @@ const BACK_MATTER = /^(acknowledg|index$|appendix|about the author|copyright|ded
  * What will be left out of the reading. Every choice can be ticked whether or not something was found, because a person knows
  * better than the detector what they do not want read. `sections`, when given, lets whole chapters be skipped too.
  */
-export function CleanupPanel({ report, options, onChange, sections }: { report: CleanupReport; options: CleanupOptions; onChange: (o: CleanupOptions) => void; sections?: SectionItem[] }) {
+export function CleanupPanel({ report, options, onChange, sections, locked = [] }: { report: CleanupReport; options: CleanupOptions; onChange: (o: CleanupOptions) => void; sections?: SectionItem[]; /** Choices the current plan cannot use: shown switched off with a Plus label. */ locked?: CleanupFlag[] }) {
   const found: Row[] = [
     { key: 'pageNumbers', label: 'Page numbers', count: report.pageNumbers },
     { key: 'repeatedHeaders', label: 'Repeated headers and footers', count: report.repeatedHeaders },
@@ -35,8 +35,8 @@ export function CleanupPanel({ report, options, onChange, sections }: { report: 
       {rows.map((r) => (
         <li key={r.key}>
           <label className={r.count === 0 ? 'muted' : ''}>
-            <input type="checkbox" checked={!!options[r.key]} onChange={(e) => onChange({ ...options, [r.key]: e.target.checked })} />
-            <span>{r.label}</span>
+            <input type="checkbox" checked={!!options[r.key] && !locked.includes(r.key)} disabled={locked.includes(r.key)} onChange={(e) => onChange({ ...options, [r.key]: e.target.checked })} />
+            <span>{r.label}</span>{locked.includes(r.key) && <span className="count" title="Included with Plus">Plus</span>}
             {r.count !== undefined && <span className="count" aria-label={r.count === 0 ? 'none found' : `${r.count} found`}>{r.count === 0 ? 'none found' : r.count}</span>}
           </label>
         </li>

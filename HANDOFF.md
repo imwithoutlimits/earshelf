@@ -126,3 +126,18 @@ To turn on: generate keys once with `node -e "const c=require('crypto');const e=
 
 **Test on a real phone before merging.** (1) Resume starts audio and opens Now playing. (2) With a natural voice: lock the screen, audio continues, and the lock screen and notification shade show title, artwork, play/pause, skip and a seek bar. (3) With a device voice: lock the screen and note whether it continues. (4) Turn reminders on in You, send a test, tap it with the app closed and open. (5) The dark reader's waveform scrolls word by word.
 
+## Upgrade pass: Creem, trial, Google sign-in, tiers (latest)
+
+Read `UPGRADE-GUIDE.md` for the owner steps. What changed in the code:
+
+- **Payments are Creem now** (`packages/billing/src/creem.ts`, `services/api/src/billing.ts`). Routes: `POST /webhooks/creem` (signature `creem-signature`, hex HMAC-SHA256), `POST /v1/billing/checkout`, `POST /v1/billing/portal`. The plan is computed from ALL of a person's Creem subscriptions every time, so webhook order cannot matter. Plans from the owner's SQL (`source = 'manual'`) and old Lemon Squeezy rows are never overwritten by an ended Creem subscription. Lemon Squeezy code is kept but unused. New optional env: `CREEM_API_KEY`, `CREEM_WEBHOOK_SECRET`, `CREEM_TEST_MODE`, `CREEM_PRODUCT_<APP>_<PLAN>_<MONTH|YEAR>` (also passed through in `deploy/docker-compose.yml` and listed in `.env.example`).
+- **7-day trial** of `TRIAL_PLAN` (Pro) once per person per app: table `trials` and function `start_trial()` (migration `0006`). People can read their row, never write it. It is deliberately NOT in `PRODUCT_TABLES` so "delete my content" cannot reset it. The effective plan is `resolvePlan()` in `packages/billing/src/trial.ts`, used by the server (`getPlan`) and the apps (`planStore`). This is a deliberate exception to "plans are granted only by the payment webhook": the trial is granted by the database function with the server clock, never by the browser.
+- **Free Kokoro preview:** `/v1/chunks` lets the Free plan use the `kokoro` engine only, counted in the daily metric `kokoro_preview_minutes` (20/day, `consume_usage_daily`), and returns the audio inline without writing to storage (`ephemeral` in `tts/generate.ts`).
+- **Plan screens** live in `packages/ui/src/plans.tsx` and `planHost.tsx` (`PlanHost` is mounted once in each app shell); copy and prices in `packages/billing/src/pitch.ts`. Anything not built yet is marked `soon: true` there. `SELLABLE` decides which paid plans can be bought; Tapestry Pro is off sale until it has real features.
+- **Google sign-in:** `packages/auth/src/google.ts` and the button in `SignIn` (`VITE_GOOGLE_SIGNIN=off` hides it). Needs the Google provider switched on in Supabase.
+- **Server self-check:** `GET /status` (yes/no settings and whether Kokoro answers) and `SETUP PROBLEM` lines in the log at start (`services/api/src/diagnostics.ts`).
+- **Tier moves:** `multi_speaker` and `audio_export` moved from Pro to Plus; Plus exports are capped at 5 a month (`audio_exports`). Reference-list and citation removal in the import cleanup is Plus (`smart_cleanup`).
+
+Not built yet (shown as "Soon"): advanced search and tags, link sharing, Talk to Your Library, private podcast feed, shared vaults, priority queue; Tapestry natural-voice narration, audio memorization loops, side-by-side translations, soundscapes, partner sharing, group wells, cross-reference map, Hebrew/Greek word study, dramatized narration, family vaults, sermon generator. Data-heavy ones need an approved data source first.
+
+Could not be run where this was written (no packages installed): the React/Dexie type check and the browser tests. CI runs them.

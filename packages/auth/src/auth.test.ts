@@ -24,3 +24,22 @@ test('reports server errors but not ordinary refusals', async () => {
   await assert.rejects(() => mk(402).apiGet('/v1/q?x=1')); await assert.rejects(() => mk(502).apiGet('/v1/q?x=1'));
   assert.deepEqual(seen, [['/v1/q', 502]]);
 });
+
+test('google sign-in asks Supabase for the google provider and comes back to the same site', async () => {
+  const { signInWithGoogle } = await import('./google.ts');
+  let seen: { provider: string; options: { redirectTo: string; queryParams: Record<string, string> } } | null = null;
+  const ok = { auth: { signInWithOAuth: async (a: typeof seen) => { seen = a; return { error: null }; } } };
+  assert.deepEqual(await signInWithGoogle(ok as never, 'https://app.example'), { error: null });
+  assert.equal(seen!.provider, 'google');
+  assert.equal(seen!.options.redirectTo, 'https://app.example');
+  assert.equal(seen!.options.queryParams.prompt, 'select_account', 'always lets the person choose which Google account');
+  const bad = { auth: { signInWithOAuth: async () => ({ error: { message: 'Unsupported provider: provider is not enabled' } }) } };
+  const r = await signInWithGoogle(bad as never, 'https://app.example');
+  assert.match(r.error!, /not enabled/);
+});
+
+test('a switched-off Google provider gets a plain-words message; other errors pass through', async () => {
+  const { googleErrorText } = await import('./google.ts');
+  assert.match(googleErrorText('Unsupported provider: provider is not enabled'), /not switched on yet/);
+  assert.equal(googleErrorText('network down'), 'network down');
+});

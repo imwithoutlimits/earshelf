@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { FileUp, Link2, ClipboardPaste, X } from 'lucide-react';
 import { analyze, DEFAULT_CLEANUP, cleanPages, listSections } from '@wells/core';
-import type { CleanupOptions, CleanupReport, ReadingMode, ShareIntent } from '@wells/core';
-import { checkUsage } from '@wells/billing/src/plans.ts';
+import type { CleanupFlag, CleanupOptions, CleanupReport, ReadingMode, ShareIntent } from '@wells/core';
+import { checkUsage, hasFeature } from '@wells/billing/src/plans.ts';
 import { db } from '../db';
 import { ACCEPT, ImportError, importFile, importPaste, importUrl } from '../importers';
 import { saveImport, type Imported } from '../pipeline';
@@ -25,6 +25,9 @@ export function ImportSheet({ onClose, onDone, defaultWellId, initial }: { onClo
   const [imp, setImp] = useState<Imported | null>(null);
   const [report, setReport] = useState<CleanupReport | null>(null);
   const [cleanup, setCleanup] = useState<CleanupOptions>({ ...DEFAULT_CLEANUP });
+  // Dropping the reference list and citations is a Plus feature. On Free those two stay off, whatever was ticked.
+  const locked: CleanupFlag[] = hasFeature(plan, 'smart_cleanup') ? [] : ['references', 'citations'];
+  const effective: CleanupOptions = locked.length ? { ...cleanup, references: false, citations: false } : cleanup;
   const [mode, setMode] = useState<ReadingMode | null>(null);
   const [wellId, setWellId] = useState(defaultWellId ?? '');
   const [title, setTitle] = useState(initial?.kind === 'text' ? initial.title ?? '' : '');
@@ -36,9 +39,9 @@ export function ImportSheet({ onClose, onDone, defaultWellId, initial }: { onClo
   const cancelled = useRef(false);
   const lastAction = useRef<(() => Promise<void>) | null>(null);
   // The headings in the cleaned text, so whole sections can be skipped. Recomputed only when a cleanup choice other than the skipped sections changes.
-  const flagKey = JSON.stringify({ ...cleanup, skipSections: [] });
+  const flagKey = JSON.stringify({ ...effective, skipSections: [] });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const sections = useMemo(() => (imp ? listSections(cleanPages(imp.pages, { ...cleanup, skipSections: [] })) : []), [imp, flagKey]);
+  const sections = useMemo(() => (imp ? listSections(cleanPages(imp.pages, { ...effective, skipSections: [] })) : []), [imp, flagKey]);
 
   const ready = (r: Imported) => {
     setImp(r); setReport(analyze(r.pages)); setTitle(r.meta.title ?? ''); setAuthor(r.meta.author ?? ''); setCleanup({ ...DEFAULT_CLEANUP }); setStage(null);
@@ -71,7 +74,7 @@ export function ImportSheet({ onClose, onDone, defaultWellId, initial }: { onClo
     if (!imp) return;
     setStage('Structuring…');
     try {
-      const id = await saveImport({ ...imp, meta: { ...imp.meta, title: title.trim() || imp.meta.title, author: author.trim() || imp.meta.author } }, cleanup, mode ?? defaultMode, wellId || undefined);
+      const id = await saveImport({ ...imp, meta: { ...imp.meta, title: title.trim() || imp.meta.title, author: author.trim() || imp.meta.author } }, effective, mode ?? defaultMode, wellId || undefined);
       void navigator.storage?.persist?.();
       onDone(id);
     } catch (e) { setStage(null); setError(e instanceof Error ? e.message : 'We could not save this document. Try again.'); }
@@ -129,7 +132,7 @@ export function ImportSheet({ onClose, onDone, defaultWellId, initial }: { onClo
             <label className="field">Author
               <input className="text-input" value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Optional" />
             </label>
-            <CleanupPanel report={report} options={cleanup} onChange={setCleanup} sections={sections} />
+            <CleanupPanel report={report} options={effective} onChange={setCleanup} sections={sections} locked={locked} />
             <label className="field">Reading mode
               <select value={mode ?? defaultMode} onChange={(e) => setMode(e.target.value as ReadingMode)}>
                 {(Object.keys(MODE_LABELS) as ReadingMode[]).map((m) => <option key={m} value={m}>{MODE_LABELS[m].name}</option>)}

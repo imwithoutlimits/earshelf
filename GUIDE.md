@@ -1,5 +1,7 @@
 # earshelf: go-live guide (no terminal, no npm)
 
+> **New:** payments moved from Lemon Squeezy to Creem, and there are now a 7-day trial, Google sign-in and a server self-check. Follow **`UPGRADE-GUIDE.md`** for those. This guide is still right for everything else.
+
 You will never type `npm run build` or `npm run dev`. GitHub holds the code. Netlify builds the website from GitHub. Coolify runs the server on your own Oracle Cloud machine, built from GitHub. Supabase stores the data. Everything is clicking and pasting.
 
 Plan for 1 to 2 hours the first time. Do the parts **in order**. Keep the "Notes" table (bottom) open in another tab and paste values into it as you go.
@@ -253,7 +255,9 @@ Test: open a document, tap the sparkle button at the top, choose **Summary**, ta
 
 ---
 
-## Part 8. Payments with Lemon Squeezy (do this last)
+## Part 8. Payments with Lemon Squeezy (REPLACED: Lemon Squeezy has wound down, use `UPGRADE-GUIDE.md` Part 3 for Creem instead)
+
+> **Read `UPGRADE-GUIDE.md` instead of this part.** Payments now go through Creem, and the 7-day trial and Google sign-in are set up there too. The steps below are kept only as history.
 
 Stay in **Test mode** the whole time (there is a switch near the top or bottom of the dashboard).
 

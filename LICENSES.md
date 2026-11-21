@@ -67,3 +67,11 @@ The sample verses inside the preview page (`apps/tapestry/preview/preview.tsx`) 
 | Coolify | Open-source deployment panel. Check its license for your use. |
 | sslip.io and DuckDNS | Free naming services used for HTTPS addresses. No account data is shared with them beyond the server's public IP. |
 | license-checker (CI only) | Used to list dependency licenses. Not shipped in the app. |
+
+## Outside services (not code we ship)
+
+| Service | Used for | Concern |
+|---|---|---|
+| Creem (creem.io) | Payments as Merchant of Record: checkout, subscriptions, tax, refunds | Replaces Lemon Squeezy (wound down). Their terms and fees apply. The server only talks to their documented API and webhook. |
+| Google Sign-In (OAuth via Supabase) | "Continue with Google" | Governed by Google's API terms. Only the person's email and basic profile are requested. The Google "G" logo follows Google's branding guidelines. |
+
