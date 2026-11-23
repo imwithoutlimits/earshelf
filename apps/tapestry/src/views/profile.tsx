@@ -9,9 +9,10 @@ import { downloadBible, enabledTranslations, infoOf } from '../data';
 import { useTranslation } from '../tr';
 import { Seg } from '../ui';
 import { openBillingPortal, usePlanDetails } from '../billing';
+import { TogetherSheet } from './together';
 
 export function Profile({ theme, setTheme }: { theme: string; setTheme: (t: string) => void }) {
-  const user = useUser(); const tr = useTranslation(); const planInfo = usePlanDetails(); const [billNote, setBillNote] = useState('');
+  const user = useUser(); const tr = useTranslation(); const planInfo = usePlanDetails(); const [billNote, setBillNote] = useState(''); const [together, setTogether] = useState(false);
   const [signIn, setSignIn] = useState(false); const [pct, setPct] = useState<number | null>(null); const [msg, setMsg] = useState('');
   const [admin, setAdmin] = useState(false); const [setup, setSetup] = useState(''); const [avail, setAvail] = useState<string[]>(['engwebp']);
   useEffect(() => { void enabledTranslations().then(setAvail); }, [user]);
@@ -27,6 +28,8 @@ export function Profile({ theme, setTheme }: { theme: string; setTheme: (t: stri
       <div className="sec"><div className="b" style={{ marginBottom: 10 }}>Plan</div>
         <PlanSummary product="tapestry" info={planInfo} signedIn={!!user} onSeePlans={openPlans} onManage={() => void openBillingPortal().catch((e) => setBillNote(e instanceof Error ? e.message : 'Could not open the billing page.'))} onSignIn={() => setSignIn(true)} />
         {billNote && <p role="alert" className="up-error sm" style={{ marginTop: 8 }}>{billNote}</p>}</div>
+      <div className="sec"><div className="b" style={{ marginBottom: 10 }}>Together</div><p className="mut sm">Share wells with a partner, your family or a small group.</p><button className="btn" style={{ marginTop: 8 }} onClick={() => setTogether(true)}>Partner, family and groups</button></div>
+      {together && <TogetherSheet onClose={() => setTogether(false)} />}
       <div className="sec"><div className="b" style={{ marginBottom: 10 }}>Appearance</div><Seg label="Theme" value={theme as 'dark'} onChange={setTheme} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark'], ['field', 'Colour']]} /></div>
       <div className="sec"><div className="b">Bible translation</div>
         <div className="pills" style={{ marginTop: 10 }} role="group" aria-label="Bible translation">{avail.map((id) => <button key={id} className="pill" aria-pressed={tr.id === id} onClick={() => void setSetting('translation', id)}>{infoOf(id).abbreviation}</button>)}</div>

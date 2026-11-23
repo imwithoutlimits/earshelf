@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, FileAudio, Lock, Play, Trash2 } from 'lucide-react';
+import { Download, FileAudio, Play, Trash2 } from 'lucide-react';
 import { hasFeature } from '@wells/billing/src/plans.ts';
 import { apiBlob, ApiError } from '../supabase';
 import { useUser } from '../auth';
-import { openPlans } from '@wells/ui';
+import { UpgradeNote } from './UpgradeNote';
+import { addToPodcast } from './PodcastCard';
 import { usePlan, useSetting } from '../hooks';
 import { downloadDocumentAudio, downloadStats, exportStatus, removeDownloads, startAudioExport, useCapabilities, useVoices as useServerVoices, type ExportStatus } from '../serverVoice';
 
@@ -96,21 +97,17 @@ export function NaturalVoice({ docId }: { docId?: string }) {
           )}
         </div>
       )}
-      {docId && <ExportBox docId={docId} allowed={hasFeature(plan, 'audio_export')} ready={canVoice && !!voice} />}
+      {docId && <ExportBox docId={docId} allowed={hasFeature(plan, 'audio_export')} podcast={hasFeature(plan, 'podcast_feed')} ready={canVoice && !!voice} />}
       {msg && <p role="alert" className="error-text">{msg}</p>}
     </div>
   );
 }
 
-/** A locked-feature line with a way to fix it. */
-function UpgradeNote({ children }: { children: React.ReactNode }) {
-  return <p className="locked"><Lock size={16} /> <span>{children}</span> <button type="button" className="link-btn inline" onClick={openPlans}>See plans</button></p>;
-}
-
 const STATE_LABEL: Record<string, string> = { queued: 'Waiting to start', generating: 'Creating the audio', packaging: 'Adding chapters', ready: 'Ready', failed: 'Something went wrong' };
 
 /** Turns the whole document into one audiobook file with chapters. Runs on the server, so you can leave and come back. */
-function ExportBox({ docId, allowed, ready }: { docId: string; allowed: boolean; ready: boolean }) {
+function ExportBox({ docId, allowed, podcast, ready }: { docId: string; allowed: boolean; podcast: boolean; ready: boolean }) {
+  const [feedNote, setFeedNote] = useState('');
   const key = `export-job:${docId}`;
   const [format, setFormat] = useState<'mp3' | 'm4b'>('mp3');
   const [job, setJob] = useState<ExportStatus | null>(null);
@@ -155,6 +152,10 @@ function ExportBox({ docId, allowed, ready }: { docId: string; allowed: boolean;
               {active && <p className="hint">This can take a while for a long book. You can close this and come back.</p>}
               {job.error && <p role="alert" className="error-text">{job.error}</p>}
               {job.result && <a className="btn primary" href={job.result.url} download><Download size={16} /> Download {job.result.ext.toUpperCase()} · {(job.result.bytes / 1048576).toFixed(1)} MB · {job.result.chapters} {job.result.chapters === 1 ? 'chapter' : 'chapters'}</a>}
+              {job.result && (podcast
+                ? <button className="btn" onClick={() => { setFeedNote(''); addToPodcast(job.id).then(() => setFeedNote('Added to your podcast feed. Find the feed address in Settings.')).catch((e) => setFeedNote(e instanceof Error ? e.message : 'Could not add it to your feed.')); }}>Add to my podcast feed</button>
+                : <UpgradeNote>A private podcast feed for your audiobooks is included with Pro.</UpgradeNote>)}
+              {feedNote && <p className="hint" role="status">{feedNote}</p>}
               {!active && <button className="btn" onClick={reset}>{job.state === 'failed' ? 'Try again' : 'Make a new file'}</button>}
             </div>
           )}

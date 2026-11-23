@@ -4,6 +4,7 @@ import { Sheet, PlanHost } from '@wells/ui';
 import { AuthContext, useSession } from '@wells/auth';
 import { supabase } from './api';
 import { openBillingPortal, planStore, startCheckout } from './billing';
+import { AmbientHost } from './views/ambient';
 import { db, getSetting, setSetting } from './db';
 import { flush, setToast } from './activity';
 import { usePlayer } from './audio';
@@ -48,6 +49,7 @@ export function App() {
         <nav className="tabs" aria-label="Primary">{TABS.map(([id, label]) => <button key={id} aria-current={!top && tab === id ? 'page' : undefined} onClick={() => nav.tab(id)}><Icon n={label} />{label}</button>)}</nav>
         <div className="main" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, position: 'relative' }}>
           <PlanHost product="tapestry" store={planStore} checkout={startCheckout} portal={openBillingPortal} />
+          <AmbientHost />
           {tab === 'home' && <Home />}{tab === 'wells' && <Wells />}{tab === 'activity' && <Activity />}{tab === 'profile' && <Profile theme={theme} setTheme={(t) => void setSetting('theme', t)} />}
           {pl.queue.length > 0 && top?.t !== 'player' && <MiniPlayer onOpen={() => nav.go({ t: 'player' })} />}
         </div>

@@ -1,3 +1,4 @@
+import { openPlans } from '@wells/ui';
 import type { ReactNode } from 'react';
 const P: Record<string, ReactNode> = {
   search: <><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></>, plus: <path d="M12 5v14M5 12h14" />, down: <path d="M6 9l6 6 6-6" />, left: <path d="M15 6l-6 6 6 6" />, right: <path d="M9 6l6 6-6 6" />, x: <path d="M6 6l12 12M18 6L6 18" />,
@@ -75,3 +76,8 @@ export const Seg = <T extends string>({ value, options, onChange, label }: { val
   <div className="seg" role="group" aria-label={label}>{options.map(([v, t]) => <button key={v} aria-pressed={value === v} onClick={() => onChange(v)}>{t}</button>)}</div>
 );
 export const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+/** A locked-feature line with a way to fix it. */
+export function UpgradeNote({ children }: { children: ReactNode }) {
+  return <p className="sm mut up-note">{children} <button type="button" className="link-btn" onClick={openPlans}>See plans</button></p>;
+}

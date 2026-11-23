@@ -1,4 +1,4 @@
-import { classifyQuery, formatReference, parseRefKey, refKey, DEFAULT_TRANSLATION } from '../../../../packages/scripture/src/index.ts';
+import { CROSSREF_CREDIT, chosenRefs, classifyQuery, formatReference, parseRefKey, rankRelated, refKey, versesIn, DEFAULT_TRANSLATION } from '../../../../packages/scripture/src/index.ts';
 import { DEFAULT_TARGET_DAYS, LISTEN_MIN_SECONDS, XP, isDay, isXpKind, addDays, localDay, validTimeZone, xpAward, DAILY_XP_CAP, BADGES, type Session } from '../../../../packages/activity/src/index.ts';
 import type { Feature, Plan } from '../../../../packages/billing/src/plans.ts';
 import { config } from '../config.ts';
@@ -7,6 +7,12 @@ import { getAiProvider } from '../ai/provider.ts';
 import { rest } from '../supa.ts';
 import { draftWell, phraseInsight, recommend, reflect, TAPESTRY_PROMPT_VERSION, type Candidate } from './ai.ts';
 import { buildSummary, listenedDays } from './activity.ts';
+import { buildGuide } from './studyGuide.ts';
+import { buildDraft } from './sermon.ts';
+import { MAX_NARRATED_VERSES, NARRATION_TRANSLATIONS, minutesFor, narratePart, pickVoice, planNarration } from './narrate.ts';
+import { engineFor } from '../tts/engines.ts';
+import { pcmToMp3 } from '../tts/ffmpeg.ts';
+import { renderGate } from '../tts/generate.ts';
 import { importTranslation, seedStarter } from './setup.ts';
 
 type Json = Record<string, unknown>;
@@ -17,6 +23,12 @@ const P = 'tapestry';
 const has = (plan: Plan, f: Feature) => { try { requireFeature(plan, f); return true; } catch { return false; } };
 
 export function tapestryRoutes({ limit, bad }: Deps): Record<string, Route> {
+  /** The verse text for each chosen passage, from this server's own copy of the Bible. */
+  const loadPassages = (refs: string[]) => Promise.all(refs.map(async (key) => {
+    const ref = parseRefKey(key)!; const to = ref.verseEnd ?? ref.verseStart ?? 999, from = ref.verseStart ?? 1;
+    const rows = await rest<Array<{ text: string }>>(`bible_verses?translation_id=eq.${config.tapestry.translationId}&book=eq.${ref.book.n}&chapter=eq.${ref.chapter}&verse=gte.${from}&verse=lte.${to}&select=text&order=verse`);
+    return { key, label: formatReference(ref), text: rows.map((r) => r.text).join(' ') };
+  }));
   const log = (c: Ctx, kind: string, input: unknown, output: unknown, ai: ReturnType<typeof getAiProvider>) => {
     if (!ai) return; void rest('ai_generations', { method: 'POST', prefer: 'return=minimal', body: { user_id: c.user.id, product: P, kind, provider: ai.id, model: ai.model, prompt_version: TAPESTRY_PROMPT_VERSION, input_ref: input, output } }).catch(() => {});
   };
@@ -52,6 +64,76 @@ export function tapestryRoutes({ limit, bad }: Deps): Record<string, Route> {
       const out = await reflect(ai, formatReference(ref), rows.map((r) => r.text).join(' '));
       log(c, 'reflect', { ref: refKey(ref) }, out, ai);
       return out;
+    } },
+
+    // Pro: a study guide or talk outline from the passages the person picked. The questions may come from AI; the verses never do.
+    'POST /v1/tapestry/study-guide': { auth: true, run: async (c) => {
+      const plan = await c.plan(); requireFeature(plan, 'sermon_generator');
+      const refs = chosenRefs(c.body.refs); if (!refs.length) throw bad('Choose at least one passage.');
+      const kind = c.body.kind === 'talk' ? 'talk' : 'study';
+      const title = String(c.body.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      limit(`t-guide:${c.user.id}`, 30, 3600_000);
+      const ai = getAiProvider();
+      if (ai) await consume(c.user.id, plan, 'ai_requests', 1, P);
+      const passages = await loadPassages(refs);
+      const out = await buildGuide(ai, kind, title, passages);
+      log(c, 'study-guide', { refs, kind }, out, ai);
+      return out;
+    } },
+
+    // Pro: an AI-written message draft from the chosen passages (owner-approved, with limits enforced in packages/scripture/src/sermon.ts).
+    'POST /v1/tapestry/sermon-draft': { auth: true, run: async (c) => {
+      const plan = await c.plan(); requireFeature(plan, 'sermon_generator');
+      const ai = getAiProvider();
+      if (!ai) throw new HttpError(503, 'ai_unavailable', 'AI features are not switched on for this server yet.');
+      const refs = chosenRefs(c.body.refs); if (!refs.length) throw bad('Choose at least one passage.');
+      const tone = c.body.tone === 'teaching' ? 'teaching' : 'pastoral';
+      const length = c.body.length === 'medium' ? 'medium' : 'short';
+      const title = String(c.body.title ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      limit(`t-draft:${c.user.id}`, 10, 3600_000);
+      await consume(c.user.id, plan, 'ai_requests', 2, P); // a draft is heavier than a question, so it counts double
+      const passages = await loadPassages(refs);
+      const out = await buildDraft(ai, tone, length, title, passages);
+      if (!out) throw new HttpError(422, 'draft_unsafe', 'Could not write a draft that follows the rules for these passages. Try again, or choose fewer passages.');
+      log(c, 'sermon-draft', { refs, tone, length }, out, ai);
+      return out;
+    } },
+
+    // Pro: passages related to one you are reading (OpenBible.info cross-references, CC BY 4.0).
+    'GET /v1/tapestry/cross-refs': { auth: true, run: async (c) => {
+      requireFeature(await c.plan(), 'cross_ref_graph');
+      const key = chosenRefs([String(c.query.get('ref') ?? '')])[0];
+      const verses = key ? versesIn(key) : null;
+      if (!key || !verses) throw bad('Choose a passage of up to 60 verses.');
+      limit(`t-xref:${c.user.id}`, 300, 3600_000);
+      const filter = verses === 'chapter' ? `from_ref=like.${key}.*` : `from_ref=in.(${verses.join(',')})`;
+      let rows: Array<{ from_ref: string; to_ref: string; votes: number }>;
+      try { rows = await rest(`cross_references?${filter}&select=from_ref,to_ref,votes&order=votes.desc&limit=400`); }
+      catch { throw new HttpError(503, 'crossrefs_unavailable', 'Cross-references have not been set up on this server yet.'); }
+      return { ref: key, credit: CROSSREF_CREDIT, items: rankRelated(rows, key, 25).map((r) => { const p = parseRefKey(r.ref); return { ref: r.ref, label: p ? formatReference(p) : r.ref, votes: r.votes }; }) };
+    } },
+
+    // Plus: a part of a passage read aloud with the natural Kokoro voice. Made on request and sent straight back, never saved. Public domain translations only.
+    'POST /v1/tapestry/narrate': { auth: true, run: async (c) => {
+      const plan = await c.plan(); requireFeature(plan, 'natural_tts');
+      const translation = String(c.body.translation ?? DEFAULT_TRANSLATION);
+      if (!NARRATION_TRANSLATIONS.includes(translation)) throw new HttpError(403, 'not_narratable', 'Natural voice reading is only available for the World English Bible, King James Version and American Standard Version.');
+      const key = chosenRefs([String(c.body.ref ?? '')])[0]; const ref = key ? parseRefKey(key) : null;
+      if (!key || !ref) throw bad('Choose a passage to listen to.');
+      const engine = engineFor('kokoro', c.user.id);
+      if (!engine) throw new HttpError(503, 'voice_unavailable', 'The natural voice is not switched on for this server.');
+      const to = ref.verseEnd ?? ref.verseStart ?? 999, from = ref.verseStart ?? 1;
+      const rows = await rest<Array<{ verse: number; text: string }>>(`bible_verses?translation_id=eq.${encodeURIComponent(translation)}&book=eq.${ref.book.n}&chapter=eq.${ref.chapter}&verse=gte.${from}&verse=lte.${to}&select=verse,text&order=verse&limit=${MAX_NARRATED_VERSES}`);
+      if (!rows.length) throw new HttpError(404, 'no_text', 'That passage is not loaded in this translation.');
+      const parts = planNarration(rows.map((r) => ({ n: r.verse, text: r.text })));
+      const idx = Number(c.body.chunk ?? 0);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= parts.length) throw bad('That part does not exist.');
+      const voice = pickVoice(await engine.listVoices(), c.body.voice);
+      if (!voice) throw new HttpError(503, 'voice_unavailable', 'The natural voice has no voices available right now.');
+      limit(`t-narr:${c.user.id}`, 240, 3600_000);
+      await consume(c.user.id, plan, 'server_tts_minutes', minutesFor(parts[idx]), P); // counts against the same fair-use monthly voice allowance
+      const out = await renderGate.run(has(plan, 'priority_queue') ? 'high' : 'normal', () => narratePart({ engine, voice, toMp3: pcmToMp3 }, parts[idx]));
+      return { ref: key, translation, chunkIndex: idx, chunkCount: parts.length, durationMs: out.durationMs, verses: out.verses, voice, url: `data:audio/mpeg;base64,${out.mp3.toString('base64')}` };
     } },
 
     'POST /v1/tapestry/well-draft': { auth: true, run: async (c) => {

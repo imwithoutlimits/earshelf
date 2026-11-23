@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { BookOpen, LayoutGrid, Library, List as ListIcon, MoreHorizontal, Play, Plus, Search as SearchIcon, Trash2, X } from 'lucide-react';
-import { chapterAtFraction } from '@wells/core';
-import { checkUsage } from '@wells/billing/src/plans.ts';
+import { BookOpen, LayoutGrid, Library, List as ListIcon, MoreHorizontal, Play, Plus, Search as SearchIcon, Share2, Trash2, X } from 'lucide-react';
+import { addTag, chapterAtFraction, makeShareLink, removeTag, tagCounts } from '@wells/core';
+import { checkUsage, hasFeature } from '@wells/billing/src/plans.ts';
 import { db, deleteDocument, queueSync, uid, type DocRecord } from '../db';
 import { formatDuration, player, usePlan, useSetting, type HomeLayout } from '../hooks';
 import { Sheet } from '../components/Sheet';
 import { DocCover } from '../components/DocCover';
 import { DueCard } from './Review';
+import { UpgradeNote } from '../components/UpgradeNote';
 
 export function useLibrary() {
   return useLiveQuery(async () => {
@@ -40,7 +41,52 @@ export function DocCard({ doc, progress, onOpen, onMenu }: { doc: DocRecord; pro
   );
 }
 
-export function WellPicker({ docId, onClose }: { docId: string; onClose: () => void }) {
+/** Plus: a few short labels on a document, used to filter the library and in search (tag:history). */
+function TagEditor({ docId, tags, suggestions }: { docId: string; tags: string[]; suggestions: string[] }) {
+  const [text, setText] = useState('');
+  const save = async (next: string[]) => {
+    // Tags are not part of the document's text, so the index and the audio are left alone (updatedAt is not touched).
+    await db.docs.update(docId, { tags: next });
+    await queueSync('documents', docId);
+  };
+  const add = async () => { const next = addTag(tags, text); setText(''); if (next.length !== tags.length) await save(next); };
+  const options = suggestions.filter((s) => !tags.includes(s) && s.startsWith(text.trim().toLowerCase().replace(/^#/, ''))).slice(0, 6);
+  return (
+    <div className="stack">
+      {tags.length > 0 && <ul className="tag-list" aria-label="Tags on this document">{tags.map((t) => <li key={t} className="tag-chip"><span>{t}</span><button type="button" aria-label={`Remove tag ${t}`} onClick={() => void save(removeTag(tags, t))}><X size={14} aria-hidden /></button></li>)}</ul>}
+      <div className="row-end">
+        <input className="text-input grow" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void add(); } }} placeholder="Add a tag, like history" aria-label="New tag" maxLength={30} />
+        <button type="button" className="btn" disabled={!text.trim() || tags.length >= 12} onClick={() => void add()}>Add</button>
+      </div>
+      {tags.length >= 12 && <p className="hint">A document can have up to 12 tags.</p>}
+      {options.length > 0 && <ul className="tag-list" aria-label="Tags you already use">{options.map((t) => <li key={t}><button type="button" className="tag-chip suggest" onClick={() => void save(addTag(tags, t))}>+ {t}</button></li>)}</ul>}
+    </div>
+  );
+}
+
+/** Plus: share a web article as a link. The link carries only the article's address, so a friend adds it to their own library. */
+function ShareBox({ title, sourceUrl }: { title: string; sourceUrl?: string }) {
+  const [note, setNote] = useState('');
+  if (!sourceUrl) return <p className="hint">Only articles added from a web link can be shared. Your own files and notes stay private.</p>;
+  const share = async () => {
+    const link = makeShareLink(location.origin, sourceUrl);
+    if (!link) { setNote('That address cannot be shared.'); return; }
+    try {
+      if (navigator.share) { await navigator.share({ title, text: `${title}: listen to it in earshelf`, url: link }); return; }
+      await navigator.clipboard.writeText(link);
+      setNote('Link copied. Paste it into a message.');
+    } catch (e) { if (!(e instanceof DOMException && e.name === 'AbortError')) setNote('Could not share. Copy the address from your browser instead.'); }
+  };
+  return (
+    <div className="stack">
+      <button type="button" className="btn" onClick={() => void share()}><Share2 size={16} aria-hidden /> Share link</button>
+      <p className="hint" role="status">{note || 'Your friend opens the link and adds the article to their own library. Nothing is uploaded.'}</p>
+    </div>
+  );
+}
+
+export function WellPicker({ docId, onClose, tagSuggestions = [] }: { docId: string; onClose: () => void; tagSuggestions?: string[] }) {
+  const plan = usePlan();
   const wells = useLiveQuery(() => db.wells.filter((w) => w.kind !== 'smart').toArray(), [], []);
   const items = useLiveQuery(() => db.wellItems.where('docId').equals(docId).toArray(), [docId], []);
   const doc = useLiveQuery(() => db.docs.get(docId), [docId]);
@@ -80,6 +126,10 @@ export function WellPicker({ docId, onClose }: { docId: string; onClose: () => v
             <button className="btn primary" disabled={!changed || !title.trim()} onClick={() => void saveDetails()}>Save details</button>
           </div>
         </div>
+        <h3 className="sub">Tags</h3>
+        {hasFeature(plan, 'tags_search') ? <TagEditor docId={docId} tags={doc?.tags ?? []} suggestions={tagSuggestions} /> : <UpgradeNote>Tags to organise your library are included with Plus.</UpgradeNote>}
+        <h3 className="sub">Share</h3>
+        {hasFeature(plan, 'link_sharing') ? <ShareBox title={doc?.title ?? ''} sourceUrl={doc?.sourceUrl} /> : <UpgradeNote>Sharing a link to an article is included with Plus.</UpgradeNote>}
         <h3 className="sub">Wells</h3>
         <ul className="check-list">
           {wells.map((w) => (
@@ -179,6 +229,11 @@ export function Home({ onOpen, onResume, startingId, onImport, onReview, onSearc
   const plan = usePlan();
   const [layout, setLayout] = useSetting<HomeLayout>('homeLayout', 'shelf');
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const canTags = hasFeature(plan, 'tags_search');
+  const tags = useMemo(() => tagCounts(lib.map((l) => l.doc)), [lib]);
+  const activeTag = canTags && tagFilter && tags.some((t) => t.tag === tagFilter) ? tagFilter : null; // a tag nobody uses any more clears itself
+  const shown = activeTag ? lib.filter((l) => l.doc.tags.includes(activeTag)) : lib;
   const resume = lib.find((l) => l.progress && !l.progress.completed && l.progress.index > 0);
   const usage = checkUsage(plan, 'documents', lib.length);
   const limited = usage.limit >= 0; // a negative limit means unlimited
@@ -211,16 +266,22 @@ export function Home({ onOpen, onResume, startingId, onImport, onReview, onSearc
               ))}
             </div>
           </div>
+          {canTags && tags.length > 0 && (
+            <div className="tag-filter" role="group" aria-label="Filter by tag">
+              <button type="button" className="tag-chip" aria-pressed={!activeTag} onClick={() => setTagFilter(null)}>All</button>
+              {tags.map(({ tag, count }) => <button key={tag} type="button" className="tag-chip" aria-pressed={activeTag === tag} onClick={() => setTagFilter(activeTag === tag ? null : tag)}>{tag} <span className="count">{count}</span></button>)}
+            </div>
+          )}
           {layout === 'list' ? (
-            <ul className="list-rows">{lib.map((it) => <Row key={it.doc.id} item={it} onOpen={() => onOpen(it.doc.id)} onMenu={() => setMenuFor(it.doc.id)} />)}</ul>
+            <ul className="list-rows">{shown.map((it) => <Row key={it.doc.id} item={it} onOpen={() => onOpen(it.doc.id)} onMenu={() => setMenuFor(it.doc.id)} />)}</ul>
           ) : (
             <ul className={layout === 'grid' ? 'tiles grid' : 'tiles shelf'}>
-              {lib.map((it) => <Tile key={it.doc.id} item={it} layout={layout} onOpen={() => onOpen(it.doc.id)} onMenu={() => setMenuFor(it.doc.id)} />)}
+              {shown.map((it) => <Tile key={it.doc.id} item={it} layout={layout} onOpen={() => onOpen(it.doc.id)} onMenu={() => setMenuFor(it.doc.id)} />)}
             </ul>
           )}
         </>
       )}
-      {menuFor && <WellPicker docId={menuFor} onClose={() => setMenuFor(null)} />}
+      {menuFor && <WellPicker docId={menuFor} onClose={() => setMenuFor(null)} tagSuggestions={tags.map((t) => t.tag)} />}
     </section>
   );
 }

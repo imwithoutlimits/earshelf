@@ -10,6 +10,12 @@ export async function searchMeaning(query: string, documentId?: string): Promise
   return (await apiPost<{ hits: MeaningHit[] }>('/v1/search', { query, documentId })).hits;
 }
 
+export interface LibraryAnswer { found: boolean; answer: string; citations: Array<{ documentId: string; documentTitle: string; sectionTitle: string; blockId: string; snippet: string }> }
+/** Pro: one question answered from passages across the whole library, with where each part came from. */
+export async function askLibrary(question: string): Promise<LibraryAnswer> {
+  return apiPost<LibraryAnswer>('/v1/ai/library-ask', { question });
+}
+
 let running = false;
 let pausedUntil = 0;
 

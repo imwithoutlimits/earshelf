@@ -19,6 +19,10 @@ export function setupReport(c: Cfg = config): SetupReport {
   if (c.allowedOrigins.length === 0) problems.push('ALLOWED_ORIGINS is empty: the websites will be blocked by the browser. Put your Netlify addresses there.');
   if (c.allowedOrigins.some((o) => o.endsWith('/'))) warnings.push('ALLOWED_ORIGINS has an address that ends with a slash. Remove the slash.');
   if (!c.tts.kokoroHostPort) warnings.push('TTS_KOKORO_HOSTPORT is empty: the free Kokoro voice is switched off.');
+  const aiOn = c.ai.provider === 'anthropic' ? !!c.ai.key : !!(c.ai.key || c.ai.base);
+  const embedOn = !!(c.embed.key || c.embed.base);
+  if (!aiOn) warnings.push('AI is switched off (AI_API_KEY is empty): summaries, quizzes, Ask your library, Tapestry recommendations and study guide questions will not work.');
+  if (!embedOn) warnings.push('Search by meaning is switched off (EMBED_API_KEY is empty): Meaning search and Ask your library will not work.');
   if (!c.creem.apiKey) warnings.push('CREEM_API_KEY is empty: the Upgrade buttons cannot open a payment page.');
   if (!c.creem.webhookSecret) warnings.push('CREEM_WEBHOOK_SECRET is empty: payments cannot unlock plans (the webhook will be refused).');
   return {
@@ -34,6 +38,8 @@ export function setupReport(c: Cfg = config): SetupReport {
       creemWebhookSecret: !!c.creem.webhookSecret,
       creemMode: c.creem.testMode ? 'test' : 'live',
       aiKey: !!c.ai.key,
+      aiEnabled: aiOn,
+      embeddingsEnabled: embedOn,
     },
   };
 }

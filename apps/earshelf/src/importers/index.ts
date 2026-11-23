@@ -63,7 +63,7 @@ export async function importUrl(url: string): Promise<Imported> {
   try {
     const data = await apiGet<{ title?: string; byline?: string | null; html: string }>(`/v1/article?url=${encodeURIComponent(parsed.href)}`);
     const doc = parseHtml(data.html);
-    return { pages: [htmlToText(articleRoot(doc))], meta: { title: pickTitle([data.title]), author: cleanAuthor(data.byline), sourceType: 'url' }, fileName: `${data.title ?? parsed.hostname}.html`, mime: 'text/html' };
+    return { pages: [htmlToText(articleRoot(doc))], meta: { title: pickTitle([data.title]), author: cleanAuthor(data.byline), sourceType: 'url' }, fileName: `${data.title ?? parsed.hostname}.html`, mime: 'text/html', sourceUrl: parsed.href };
   } catch (e) {
     if (e instanceof ApiError) throw new ImportError(e.code === 'no_api' || e.code === 'unauthorized' ? 'Importing from a link needs you to be signed in and connected to the earshelf server. You can paste the article text instead.' : e.message);
     throw e;

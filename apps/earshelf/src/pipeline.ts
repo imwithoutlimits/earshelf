@@ -8,6 +8,8 @@ export interface Imported {
   fileName: string;
   mime: string;
   blob?: Blob;
+  /** Where an article came from (web links only). */
+  sourceUrl?: string;
 }
 
 export function defaultCleanup(): CleanupOptions {
@@ -30,6 +32,7 @@ export function buildRecord(imp: Imported, cleanup: CleanupOptions, readingMode:
     cleanup,
     report: analyze(imp.pages),
     tags: [],
+    sourceUrl: imp.sourceUrl,
     parsed,
   };
 }
@@ -51,6 +54,8 @@ export async function reprocess(docId: string, cleanup: CleanupOptions, readingM
   const [doc, src] = await Promise.all([db.docs.get(docId), db.sources.get(docId)]);
   if (!doc || !src) throw new Error('The original text for this document is missing, so it cannot be re-cleaned. Import it again.');
   const rec = buildRecord({ pages: src.pages, meta: { title: doc.title, author: doc.author, sourceType: doc.sourceType, language: doc.language, pageCount: doc.pageCount }, fileName: src.fileName, mime: src.mime }, cleanup, readingMode, docId);
-  await db.docs.update(docId, { ...rec, createdAt: doc.createdAt, updatedAt: Date.now() });
+  // Cleaning again must never wipe what the person added on top: their tags, and where the article came from.
+  const { tags: _tags, sourceUrl: _src, ...fresh } = rec;
+  await db.docs.update(docId, { ...fresh, createdAt: doc.createdAt, updatedAt: Date.now() });
   await queueSync('documents', docId);
 }

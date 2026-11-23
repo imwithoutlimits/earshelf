@@ -14,6 +14,8 @@ export interface DocRecord {
   cleanup: CleanupOptions;
   report: CleanupReport;
   tags: string[];
+  /** The web address an article was added from, kept on this device so it can be shared as a link. */
+  sourceUrl?: string;
   parsed: ParsedDocument;
   createdAt: number;
   updatedAt: number;

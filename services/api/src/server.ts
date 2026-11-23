@@ -14,7 +14,11 @@ import { pcmToMp3 } from './tts/ffmpeg.ts';
 import { getAiProvider } from './ai/provider.ts';
 import { ask, flashcards, isSummaryKind, quiz, summarize, PROMPT_VERSION } from './ai/tasks.ts';
 import { explain } from './ai/explain.ts';
-import { indexDocument, makeEmbedder, realSearchRpc, replaceChunks, semanticSearch } from './semantic.ts';
+import { indexDocument, makeEmbedder, realSearchRpc, replaceChunks, semanticPassages, semanticSearch } from './semantic.ts';
+import { askLibrary } from './ai/library.ts';
+import { MAX_BYTES, MAX_EPISODES, KEEP_DAYS, TOKEN_RE, addEpisode, buildFeedXml, ensureFeed, episodeUrl, feedUrl, newToken, publicBase, startPodcastSweeper, supaPodcastStore } from './podcast.ts';
+import { signedUrl } from './supa.ts';
+import { addComment, addItem, createVault, deleteVault, displayNameFor, joinVault, leaveVault, listVaults, removeItem, removeMember, rotateCode, showCode, supaVaultStore, vaultDetail, type VaultProduct } from './vaults.ts';
 import { jobStatus, startExport } from './exportJob.ts';
 import { report } from './monitor.ts';
 import { logStartupReport, probeKokoro, setupReport } from './diagnostics.ts';
@@ -23,7 +27,7 @@ import { earshelfActivityRoutes } from './earshelf/activity.ts';
 import { earshelfPushRoutes, startPushScheduler } from './earshelf/push.ts';
 
 type Json = Record<string, unknown>;
-interface Ctx { user: { id: string; email?: string }; body: Json; query: URLSearchParams; origin: string; plan: () => Promise<Plan> }
+interface Ctx { user: { id: string; email?: string }; body: Json; query: URLSearchParams; origin: string; base: string; plan: () => Promise<Plan> }
 interface Route { auth: boolean; run: (c: Ctx) => Promise<unknown> }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -68,6 +72,19 @@ async function aiRun<T>(c: Ctx, feature: Feature, kind: string, fn: (ai: NonNull
     if (e instanceof HttpError) throw e;
     throw new HttpError(502, 'ai_failed', e instanceof Error ? e.message : 'The AI request failed.');
   }
+}
+
+const vaultProduct = (v: unknown): VaultProduct => (v === 'tapestry' ? 'tapestry' : 'earshelf');
+
+/** What the Podcast feed screen shows: the address, the episodes and how much room is left. */
+async function podcastState(userId: string, base: string) {
+  const token = await supaPodcastStore.getToken(userId);
+  const episodes = token ? await supaPodcastStore.list(userId) : [];
+  return {
+    feedUrl: token ? feedUrl(base, token) : null,
+    episodes: episodes.map((e) => ({ id: e.id, title: e.title, author: e.author, ext: e.ext, bytes: e.bytes, durationMs: e.durationMs, publishedAt: e.publishedAt, expiresAt: e.expiresAt, url: token ? episodeUrl(base, token, e) : null })),
+    usage: { count: episodes.length, bytes: episodes.reduce((n, e) => n + e.bytes, 0), maxCount: MAX_EPISODES, maxBytes: MAX_BYTES, keepDays: KEEP_DAYS },
+  };
 }
 
 const routes: Record<string, Route> = {
@@ -136,6 +153,7 @@ const routes: Record<string, Route> = {
       userId: c.user.id, docId: docId(c.body), docUpdatedAt: updated, chunkIndex: idx, engine: e, voice: c.body.voice, mode, pauseScale: scale,
       prons: plan === 'free' ? [] : prons(c.body),
       ephemeral: preview,
+      priority: preview ? 'low' : hasFeature(plan, 'priority_queue') ? 'high' : 'normal',
       beforeSynthesis: async (minutes) => { await consume(c.user.id, plan, preview ? 'kokoro_preview_minutes' : 'server_tts_minutes', minutes); },
     });
   } },
@@ -184,6 +202,83 @@ const routes: Record<string, Route> = {
     catch (e) { throw new HttpError(502, 'search_failed', e instanceof Error ? e.message : 'Search failed.'); }
   } },
 
+  // Pro: ask one question and get an answer drawn from passages across the person's whole library, with the places it came from.
+  'POST /v1/ai/library-ask': { auth: true, run: async (c) => {
+    const ai = getAiProvider();
+    if (!ai) throw new HttpError(503, 'ai_unavailable', 'AI features are not switched on for this server.');
+    const plan = await c.plan();
+    requireFeature(plan, 'library_chat');
+    const emb = makeEmbedder();
+    if (!emb) throw new HttpError(503, 'embeddings_unavailable', 'Searching by meaning is not switched on for this server.');
+    const question = String(c.body.question ?? '').trim();
+    if (question.length < 3 || question.length > 400) throw bad('Ask a question between 3 and 400 characters.');
+    limit(`libask:${c.user.id}`, 40, 3600_000);
+    await consume(c.user.id, plan, 'ai_requests', 1);
+    try {
+      const hits = await semanticPassages({ embed: (t) => emb.embed(t), rpc: realSearchRpc }, { userId: c.user.id, query: question, limit: 8 });
+      const ids = [...new Set(hits.map((h) => h.documentId))].filter((i) => /^[0-9a-f-]{36}$/i.test(i));
+      const rows = ids.length ? await rest<Array<{ id: string; title: string }>>(`documents?user_id=eq.${c.user.id}&id=in.(${ids.join(',')})&select=id,title`) : [];
+      const out = await askLibrary(ai, hits, new Map(rows.map((r) => [r.id, r.title])), question);
+      void rest('ai_generations', { method: 'POST', prefer: 'return=minimal', body: { user_id: c.user.id, product: 'earshelf', kind: 'library-ask', provider: ai.id, model: ai.model, prompt_version: PROMPT_VERSION, input_ref: { question: question.slice(0, 200) }, output: out } }).catch(() => {});
+      return out;
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(502, 'ai_failed', e instanceof Error ? e.message : 'The AI request failed.');
+    }
+  } },
+
+  // Pro: a private podcast feed of finished audiobook exports (owner-approved limits in podcast.ts).
+  'GET /v1/podcast': { auth: true, run: async (c) => {
+    requireFeature(await c.plan(), 'podcast_feed');
+    return podcastState(c.user.id, c.base);
+  } },
+  'POST /v1/podcast/enable': { auth: true, run: async (c) => {
+    requireFeature(await c.plan(), 'podcast_feed');
+    await ensureFeed(supaPodcastStore, c.user.id);
+    return podcastState(c.user.id, c.base);
+  } },
+  'POST /v1/podcast/rotate': { auth: true, run: async (c) => {
+    requireFeature(await c.plan(), 'podcast_feed');
+    await supaPodcastStore.setToken(c.user.id, newToken()); // the old address stops working at once
+    return podcastState(c.user.id, c.base);
+  } },
+  'POST /v1/podcast/episodes': { auth: true, run: async (c) => {
+    requireFeature(await c.plan(), 'podcast_feed');
+    const jobId = String(c.body.jobId ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(jobId)) throw bad('Choose a finished audiobook file.');
+    await ensureFeed(supaPodcastStore, c.user.id);
+    await addEpisode(supaPodcastStore, c.user.id, jobId);
+    return podcastState(c.user.id, c.base);
+  } },
+  'POST /v1/podcast/remove': { auth: true, run: async (c) => {
+    const id = String(c.body.id ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw bad('Choose an episode to remove.');
+    await supaPodcastStore.remove(c.user.id, id); // removing is always allowed, even after a downgrade
+    return podcastState(c.user.id, c.base);
+  } },
+
+  // Shared vaults for both apps: a couple, a family or a study group. All rules are in vaults.ts; nobody reads these tables directly.
+  'GET /v1/vaults': { auth: true, run: async (c) => ({ vaults: await listVaults(supaVaultStore, c.user.id, vaultProduct(c.query.get('product'))) }) },
+  'GET /v1/vaults/detail': { auth: true, run: async (c) => vaultDetail(supaVaultStore, c.user.id, String(c.query.get('id') ?? '')) },
+  'POST /v1/vaults/create': { auth: true, run: async (c) => {
+    limit(`vault-new:${c.user.id}`, 20, 3600_000);
+    const product = vaultProduct(c.body.product);
+    const v = await createVault(supaVaultStore, { userId: c.user.id, email: c.user.email, product, plan: await getPlan(c.user.id, product), kind: c.body.kind, name: c.body.name, displayName: c.body.displayName });
+    return { id: v.id, code: showCode(v.code) };
+  } },
+  'POST /v1/vaults/join': { auth: true, run: async (c) => {
+    limit(`vault-join:${c.user.id}`, 20, 3600_000); // slows down anyone guessing codes
+    const v = await joinVault(supaVaultStore, { userId: c.user.id, email: c.user.email, product: vaultProduct(c.body.product), code: c.body.code, displayName: c.body.displayName });
+    return { id: v.id };
+  } },
+  'POST /v1/vaults/leave': { auth: true, run: async (c) => { await leaveVault(supaVaultStore, c.user.id, String(c.body.id ?? '')); return { ok: true }; } },
+  'POST /v1/vaults/remove-member': { auth: true, run: async (c) => { await removeMember(supaVaultStore, c.user.id, String(c.body.id ?? ''), String(c.body.userId ?? '')); return { ok: true }; } },
+  'POST /v1/vaults/rotate-code': { auth: true, run: async (c) => ({ code: await rotateCode(supaVaultStore, c.user.id, String(c.body.id ?? '')) }) },
+  'POST /v1/vaults/delete': { auth: true, run: async (c) => { await deleteVault(supaVaultStore, c.user.id, String(c.body.id ?? '')); return { ok: true }; } },
+  'POST /v1/vaults/items': { auth: true, run: async (c) => { limit(`vault-item:${c.user.id}`, 120, 3600_000); const i = await addItem(supaVaultStore, c.user.id, String(c.body.id ?? ''), c.body); return { id: i.id }; } },
+  'POST /v1/vaults/items/remove': { auth: true, run: async (c) => { await removeItem(supaVaultStore, c.user.id, String(c.body.id ?? ''), String(c.body.itemId ?? '')); return { ok: true }; } },
+  'POST /v1/vaults/comments': { auth: true, run: async (c) => { limit(`vault-comment:${c.user.id}`, 200, 3600_000); const m = await addComment(supaVaultStore, c.user.id, String(c.body.id ?? ''), String(c.body.itemId ?? ''), c.body.body); return { id: m.id }; } },
+
   'POST /v1/export/audio': { auth: true, run: async (c) => {
     const plan = await c.plan();
     requireFeature(plan, 'audio_export');
@@ -195,6 +290,7 @@ const routes: Record<string, Route> = {
     await consume(c.user.id, plan, 'audio_exports', 1);
     const jobId = await startExport({
       ...narrationFrom(c.body, plan),
+      priority: hasFeature(plan, 'priority_queue') ? 'high' : 'normal',
       userId: c.user.id, docId: docId(c.body), docUpdatedAt: updated, engine: e, voice: c.body.voice, mode, pauseScale: scale, format,
       prons: plan === 'free' ? [] : prons(c.body),
       beforeSynthesis: async (minutes) => { await consume(c.user.id, plan, 'server_tts_minutes', minutes); },
@@ -250,6 +346,25 @@ createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://x');
   try {
     if (req.method === 'OPTIONS') { res.writeHead(204).end(); return; }
+    // Podcast apps fetch these without signing in: the secret in the address is the key.
+    const feedMatch = req.method === 'GET' || req.method === 'HEAD' ? /^\/feed\/([A-Za-z0-9_-]{32})(?:\.xml|\/([0-9a-f-]{36})\.(mp3|m4b))$/.exec(url.pathname) : null;
+    if (feedMatch) {
+      limit(`feed:${String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '').split(',')[0].trim()}`, 600, 3600_000);
+      const owner = TOKEN_RE.test(feedMatch[1]) ? await supaPodcastStore.userByToken(feedMatch[1]) : null;
+      const none = () => { res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found'); };
+      if (!owner) return none();
+      const base = publicBase(req.headers, config.publicApiUrl);
+      if (!feedMatch[2]) {
+        const eps = await supaPodcastStore.list(owner);
+        res.writeHead(200, { 'Content-Type': 'application/rss+xml; charset=utf-8', 'Cache-Control': 'private, max-age=300' }).end(req.method === 'HEAD' ? undefined : buildFeedXml({ base, token: feedMatch[1], title: 'My earshelf audiobooks', episodes: eps }));
+        return;
+      }
+      const ep = await supaPodcastStore.byId(feedMatch[2]);
+      if (!ep || ep.userId !== owner || ep.ext !== feedMatch[3]) return none();
+      // Hand the app a short-lived link to the file. Storage serves it (including partial downloads), not this server.
+      res.writeHead(302, { Location: await signedUrl('audio', ep.storagePath, 3600), 'Cache-Control': 'no-store' }).end();
+      return;
+    }
     if (req.method === 'POST' && url.pathname === '/webhooks/creem') {
       const raw = await readBody(req);
       const out = await processCreemWebhook(raw, req.headers['creem-signature'] as string | undefined);
@@ -269,7 +384,7 @@ createServer(async (req, res) => {
     let body: Json = {};
     if (req.method === 'POST') { try { body = JSON.parse((await readBody(req)) || '{}') as Json; } catch (e) { if (e instanceof HttpError) throw e; throw bad('Body must be JSON.'); } }
     let planP: Promise<Plan> | null = null;
-    const out = await route.run({ user, body, query: url.searchParams, origin: String(req.headers.origin ?? ''), plan: () => (planP ??= getPlan(user.id, url.pathname.startsWith('/v1/tapestry/') ? 'tapestry' : 'earshelf')) });
+    const out = await route.run({ user, body, query: url.searchParams, origin: String(req.headers.origin ?? ''), base: publicBase(req.headers, config.publicApiUrl), plan: () => (planP ??= getPlan(user.id, url.pathname.startsWith('/v1/tapestry/') ? 'tapestry' : 'earshelf')) });
     if (out && typeof out === 'object' && '__binary' in out) {
       const b = out as { __binary: Buffer; type: string };
       res.writeHead(200, { 'Content-Type': b.type, 'Content-Length': b.__binary.length }).end(b.__binary);
@@ -282,6 +397,7 @@ createServer(async (req, res) => {
   }
 }).listen(config.port, () => console.log(`wells api (earshelf + tapestry) listening on ${config.port}`));
 logStartupReport();
+startPodcastSweeper();
 startPushScheduler();
 
 process.on('uncaughtException', (e) => { console.error('uncaught', e); report(e, 'uncaughtException'); });
