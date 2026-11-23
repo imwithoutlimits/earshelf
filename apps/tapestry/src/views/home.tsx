@@ -7,7 +7,9 @@ import { player, usePlayer } from '../audio';
 import { Constellation, Icon, PlayGlyph, Ring, Seg } from '../ui';
 import { useNav } from '../nav';
 import { useTranslation } from '../tr';
-import { formatReference, parseRefKey } from '@wells/scripture';
+import { dueRecall, formatReference, parseRefKey } from '@wells/scripture';
+import { hasFeature } from '@wells/billing/src/plans.ts';
+import { usePlan } from '../billing';
 
 /** The opening sentence or two of a passage, ending where a sentence ends. */
 const lead = (t: string) => { const sx = t.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [t]; let o = ''; for (const x of sx) { if ((o + x).trim().length > 90 && o) break; o += x; } return o.trim() || t.slice(0, 110); };
@@ -20,8 +22,11 @@ export function Home() {
   const [after, setAfter] = useState<'scripture' | 'reflect' | 'journal'>('reflect'); const [prompt, setPrompt] = useState('');
   const sum = useLiveQuery(summary, [], null); const wellId = useLiveQuery(() => getSetting('currentWell', 'courage-for-difficult-days'), [], 'courage-for-difficult-days');
   const prog = useLiveQuery(() => db.progress.toArray(), [], []);
+  const plan = usePlan(); const memos = useLiveQuery(() => db.memo.toArray(), [], []);
   useEffect(() => { void (async () => { const w = await wellView(wellId) ?? await wellView('courage-for-difficult-days'); if (!w) return; const i = Math.min(await progressOf(w.id), Math.max(0, w.items.length - 1)); setWell(w); setIdx(i); setP(await loadPassage(w.items[i]?.key ?? '')); })(); }, [wellId, prog]);
   if (!well) return <div className="screen"><p className="mut">Loading…</p></div>;
+  const due = hasFeature(plan, 'recall_scheduling') ? dueRecall(memos) : [];
+  const dueRef = due.length ? parseRefKey(due[0].ref) : null;
   const listened = Math.min(idx, well.items.length); const upNext = well.items.slice(idx + 1, idx + 3);
   const text = p?.text ?? ''; const ref = parseRefKey(well.items[idx]?.key ?? '');
   const listen = async () => { if (pl.playing && pl.queue[0]?.wellId === well.id) { player.toggle(); return; } const q = await queueFor(well, idx); if (q.length) { player.setMode({ silence: after !== 'scripture' || true }); player.play(q); } else nav.toast('The Bible text is not loaded yet. Connect to the internet once. If it still fails, the owner needs to load the Scripture.'); };
@@ -31,6 +36,7 @@ export function Home() {
         <button className="icon-btn" aria-label="Search" onClick={() => nav.go({ t: 'search' })}><Icon n="search" /></button></div>
       {sum && <button className="row sec" style={{ marginTop: 12, borderBottom: '1px solid var(--line)', background: 'none', border: 0, borderTop: '1px solid var(--line)', width: '100%', textAlign: 'left' }} onClick={() => nav.tab('activity')}>
         <Ring done={sum.weekly.done} target={sum.weekly.target} /><div className="grow"><div className="b">{sum.thread.count}-day thread</div><div className="sm mut">{sum.thread.atRisk ? 'Listen today to keep it' : sum.weekly.met ? 'Weekly target reached' : `${sum.weekly.remaining} more ${sum.weekly.remaining === 1 ? 'day' : 'days'} to your weekly target`}</div></div><span className="mut"><Icon n="right" s={20} /></span></button>}
+      {due.length > 0 && <button className="row sec" style={{ marginTop: 12, width: '100%', textAlign: 'left', background: 'none', border: 0, borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }} onClick={() => nav.go({ t: 'memorize', key: due[0].ref })}><div className="grow"><div className="b">{due.length} {due.length === 1 ? 'passage is' : 'passages are'} ready to recall</div><div className="sm mut">Start with {dueRef ? formatReference(dueRef) : due[0].ref}</div></div></button>}
       <div style={{ marginTop: 6 }}><Constellation n={well.items.length} done={listened} label={`${well.items.length} passages in ${well.name}; ${listened} listened, today's is the large star`} /></div>
       <p className="sm mut">Each star is a passage in this well. The large star is today's.</p>
       <div style={{ marginTop: 14 }}>

@@ -3,6 +3,7 @@ import type { NarrationOverrides, PronunciationEntry, ReadingMode } from '../../
 import { HttpError } from './entitlements.ts';
 import { runExport } from './export.ts';
 import { generateChunk, loadDocument } from './tts/generate.ts';
+import type { Priority } from './tts/gate.ts';
 import { packageAudio } from './tts/package.ts';
 import { rest, signedUrl, storageDownload, storageUpload } from './supa.ts';
 import type { TtsEngine } from './tts/types.ts';
@@ -15,6 +16,7 @@ export interface ExportRequest {
   userId: string; docId: string; docUpdatedAt: number; engine: TtsEngine; voice: string; mode: ReadingMode; pauseScale: number;
   prons: PronunciationEntry[]; format: 'mp3' | 'm4b'; beforeSynthesis: (minutes: number) => Promise<void>;
   overrides?: NarrationOverrides; dialogueVoice?: string;
+  priority?: Priority;
 }
 
 export async function startExport(r: ExportRequest): Promise<string> {
@@ -39,7 +41,7 @@ export async function startExport(r: ExportRequest): Promise<string> {
   void runExport({
     chunkCount: plan.length, utterances: utts, titles, docTitle: parsed.title, author: parsed.author, format: r.format, setJob: patch,
     async generate(ci) {
-      const c = await generateChunk({ userId: r.userId, docId: r.docId, docUpdatedAt: r.docUpdatedAt, chunkIndex: ci, engine: r.engine, voice: r.voice, mode: r.mode, pauseScale: r.pauseScale, prons: r.prons, beforeSynthesis: r.beforeSynthesis, overrides: r.overrides, dialogueVoice: r.dialogueVoice });
+      const c = await generateChunk({ userId: r.userId, docId: r.docId, docUpdatedAt: r.docUpdatedAt, chunkIndex: ci, engine: r.engine, voice: r.voice, mode: r.mode, pauseScale: r.pauseScale, prons: r.prons, priority: r.priority, beforeSynthesis: r.beforeSynthesis, overrides: r.overrides, dialogueVoice: r.dialogueVoice });
       const mp3 = await storageDownload('audio', `${r.userId}/${r.docId}/${c.cacheKey}/${ci}.mp3`);
       if (!mp3) throw new Error('A generated part went missing. Try the export again.');
       return { meta: { start: c.start, end: c.end, durationMs: c.durationMs, items: c.items }, mp3 };

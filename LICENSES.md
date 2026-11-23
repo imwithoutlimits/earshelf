@@ -74,4 +74,4 @@ The sample verses inside the preview page (`apps/tapestry/preview/preview.tsx`) 
 |---|---|---|
 | Creem (creem.io) | Payments as Merchant of Record: checkout, subscriptions, tax, refunds | Replaces Lemon Squeezy (wound down). Their terms and fees apply. The server only talks to their documented API and webhook. |
 | Google Sign-In (OAuth via Supabase) | "Continue with Google" | Governed by Google's API terms. Only the person's email and basic profile are requested. The Google "G" logo follows Google's branding guidelines. |
-
+| OpenBible.info cross-references | Related passages in Tapestry Pro | Creative Commons Attribution 4.0 (CC BY 4.0). Mostly from the public domain Treasury of Scripture Knowledge. The app shows this credit next to the list: "Cross-references from OpenBible.info, used under CC BY 4.0." Data is loaded by scripts/load-cross-references.mjs. |

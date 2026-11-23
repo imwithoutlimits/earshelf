@@ -62,3 +62,11 @@ export async function semanticSearch(deps: SearchDeps, o: { userId: string; quer
   return rows.map((r) => ({ documentId: r.document_id, blockId: r.block_refs?.[0] ?? '', sectionTitle: r.section_title ?? '', snippet: r.content.slice(0, 180), score: r.score }));
 }
 export const realSearchRpc: SearchDeps['rpc'] = (params) => rest('rpc/hybrid_search', { method: 'POST', body: params });
+
+export interface PassageHit { documentId: string; blockId: string; sectionTitle: string; text: string; score: number }
+/** Like semanticSearch, but keeps the whole passage so an AI can answer from it. */
+export async function semanticPassages(deps: SearchDeps, o: { userId: string; query: string; limit?: number }): Promise<PassageHit[]> {
+  const [q] = await deps.embed([o.query]);
+  const rows = await deps.rpc({ p_user: o.userId, p_query: o.query, p_embedding: vec(q), p_limit: o.limit ?? 8, p_document: null });
+  return rows.map((r) => ({ documentId: r.document_id, blockId: r.block_refs?.[0] ?? '', sectionTitle: r.section_title ?? '', text: r.content, score: r.score }));
+}

@@ -12,3 +12,6 @@ export const TRANSLATIONS: TranslationInfo[] = [
     notice: 'The American Standard Version (1901) is in the public domain. Text courtesy of eBible.org.', licenseUrl: 'https://ebible.org/details.php?id=eng-asv' },
 ];
 export const translationById = (id: string): TranslationInfo | undefined => TRANSLATIONS.find((t) => t.id === id);
+
+/** Translations that may be read aloud with the natural voice: public domain only (owner-approved). */
+export const NARRATION_TRANSLATIONS: readonly string[] = ['engwebp', 'eng-kjv2006', 'eng-asv'];

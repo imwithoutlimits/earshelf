@@ -5,6 +5,7 @@ import { useTranslation } from '../tr';
 import { db } from '../db';
 import { uid } from '@wells/offline';
 import { award } from '../activity';
+import { AmbientControls } from './ambient';
 
 export function MiniPlayer({ onOpen }: { onOpen: () => void }) {
   const p = usePlayer(); const it = p.queue[p.index]; if (!it) return null;
@@ -36,6 +37,7 @@ export function PlayerView() {
         {[{ l: `${p.rate.toFixed(1)}×`, a: 'Speed', f: () => player.setRate(p.rate >= 1.3 ? 0.7 : Math.round((p.rate + 0.2) * 10) / 10) }, { l: <Icon n="moon" />, a: p.sleepAt ? 'Sleep timer on' : 'Sleep timer', f: () => player.setSleep(p.sleepAt ? null : 15) }, { l: <Icon n="repeat" />, a: `Repeat ${p.repeat}`, f: () => player.setMode({ repeat: p.repeat === 'off' ? 'one' : p.repeat === 'one' ? 'all' : 'off' }) }, { l: <Icon n="mark" />, a: 'Bookmark', f: async () => { await db.bookmarks.add({ id: uid(), ref: it.key, createdAt: Date.now() }); await award('save_passage', it.key); nav.toast('Bookmarked'); } }, { l: <Icon n="note" />, a: 'Note', f: () => nav.go({ t: 'passage', key: it.key }) }].map((b) => (
           <button key={b.a} className="grow" style={{ background: 'none', border: 0, minHeight: 48, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, fontSize: 12 }} onClick={() => void b.f()} aria-label={b.a}><span style={{ fontWeight: 700, fontSize: 16, display: 'flex' }}>{b.l}</span>{b.a.split(' ')[0]}</button>))}
       </div>
+      <AmbientControls />
     </div>
   );
 }

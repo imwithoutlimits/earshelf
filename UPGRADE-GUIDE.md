@@ -290,13 +290,13 @@ The plan screens show anything not built yet with a **Soon** label, so nobody pa
 | App | Working now | Marked "Soon" (not built yet) |
 |---|---|---|
 | earshelf Free | Imports, device voices, 20 min/day Kokoro preview, basic search | |
-| earshelf Plus | Natural voice, smart cleanup (drops reference lists and citations), two-voice dialogue, audiobook export (5/mo), AI summaries, OCR, offline audio, sync | Advanced search and tags, link sharing |
-| earshelf Pro | Questions about a document, quizzes and flashcards, search across all documents, explain tables, batch import, unlimited exports | Talk to Your Library, private podcast feed, shared vaults, priority queue |
+| earshelf Plus | Natural voice, smart cleanup, two-voice dialogue, audiobook export (5/mo), AI summaries, OCR, offline audio, sync, **tags and advanced search, share a web article as a link** | |
+| earshelf Pro | Questions about a document, quizzes and flashcards, search across all documents, explain tables, batch import, unlimited exports, Talk to Your Library, priority audio rendering, **private podcast feed, shared vaults** | |
 | Tapestry Free | Reading, wells, bookmarks, activity | |
-| Tapestry Plus | AI search, recommendations, reflection prompts, AI-drafted wells | Natural voice narration, audio memorization loops, side-by-side translations, soundscapes, partner sharing |
-| Tapestry Pro | (Includes Plus) | **Everything that makes Pro different is still to build**, so **Tapestry Pro is off sale**: its card says "Coming soon" and the server refuses to start a checkout for it. Put it on sale by adding `'pro'` to `SELLABLE.tapestry` in `packages/billing/src/pitch.ts` once a few of its Pro features have shipped. |
+| Tapestry Plus | AI search, recommendations, reflection prompts, AI-drafted wells, translations side by side, guided audio memorization loops, ambient soundscapes, **natural voice reading, partner sharing** | |
+| Tapestry Pro | Study guide and talk outline, **AI message draft**, spaced recall, streak insights, **related passages, family vaults and small groups** (plus everything in Plus) | Advanced guided paths, Hebrew and Greek word study (needs your approval, Part 12), dramatized narration |
 
-Tapestry's voice today is the phone's own voice, not Kokoro, so "natural voice narration" is marked Soon there.
+Tapestry's voice today is the phone's own voice, not Kokoro, so "natural voice narration" is marked Soon there. **Tapestry Pro is on sale** now that it has three features of its own (`SELLABLE` in `packages/billing/src/pitch.ts`).
 
 Things that need data I cannot invent (cross references, Hebrew and Greek word data, extra Bible translations) will need you to approve a data source first, because the Supabase free plan has limited space.
 
@@ -308,3 +308,122 @@ Things that need data I cannot invent (cross references, Hebrew and Greek word d
 - **Payment taken but no plan:** in Creem open **Developers, Webhooks** and look at the delivery log for that payment. A red delivery means the server rejected or failed it: usually the signing secret is wrong or the server was down. Fix it and press **Resend**. Resending is safe: repeats are ignored.
 - **Webhook says rejected (401):** `CREEM_WEBHOOK_SECRET` in Coolify is not the signing secret of the **same mode** (test or live) as the key.
 - **Someone is stuck on Free after paying:** the app and the server read the same table. In Supabase **Table editor, entitlements**, find their row. `plan`, `active` and `expires_at` tell the story.
+
+---
+
+## Part 9. What was added in the second run, and how to try each thing
+
+**There is no new SQL to run.** Upload the new files the same way as Part 1 (a new branch, the changed-files zip, a pull request, wait for green, merge). Then Coolify needs a **Redeploy** of the api app, because the server has two new routes. Netlify rebuilds the websites by itself.
+
+### 9a. earshelf (Plus): tags, advanced search, share a link
+
+1. Open the app, tap the three dots on a book in your library, **Document options**.
+2. **Tags:** type a word (like `history`) and press **Add**. A document can have up to 12. Tags sync to your other devices.
+3. Back in the library a row of tag buttons appears. Tap one to show only those documents.
+4. **Search** (magnifier): type `tag:history`, `type:pdf`, `author:smith`, `is:unfinished`, `"exact phrase"` or `-word` (leaves out anything containing it). You can mix them: `war tag:history is:unfinished`.
+5. **Share link:** it appears on **web articles** only. Tap **Share link** and send it. Your friend opens it, signs in and adds the article to **their own** library. Nothing is uploaded or hosted, so there is no copyright problem.
+   - The link needs the article's web address, which is saved **from now on**. Articles you added before this update, and articles on a second device, will say "Only articles added from a web link can be shared".
+
+### 9b. earshelf (Pro): Talk to Your Library
+
+1. Search, then pick **Ask** next to Words and Meaning (it only shows for Pro and for people in a Pro trial).
+2. Type a question like "What did I save about sleep?" and tap **Ask**.
+3. The answer comes **only from your own documents** and lists where it was found. Tap a source to jump to it. If the AI cannot tie the answer to a real place in your documents, it says so instead of guessing.
+4. It needs the same things "search by meaning" needs: documents already indexed (this happens by itself in the background after you add or change a document) and the AI and embeddings keys set in Coolify. If **Ask** does not appear, one of those is missing. Your `/status` page shows `aiKey`.
+
+### 9c. Tapestry (Plus): translations side by side
+
+1. Open a passage, tap **Compare**. You see a table with one column per translation, verse by verse. Tap the small buttons (WEB, KJV...) to choose up to three.
+2. On the Free plan the button explains that this is a Plus feature.
+3. **If you only see one translation:** the others are not loaded yet (this is a correction to an earlier version of this guide, which said Owner setup loads them all; it loads only the default one). To add more: on GitHub open the **Actions** tab, choose **Load Tapestry content** on the left, click **Run workflow**, and in the **translations** box type `engwebp,eng-kjv2006,eng-asv` (World English Bible, King James Version, American Standard Version: all public domain), then **Run workflow**. Wait for the green tick. Each translation uses a few MB of your free database space. Open Compare again.
+
+### 9d. Tapestry (Pro): study guide, spaced recall, streak insights
+
+1. **Study guide:** open any well, tap **Study guide**, choose **Group study** or **Talk outline**, tick the passages and tap **Make the guide**. You get your passages in order, each with the Scripture text **word for word from your own Bible**, plus open questions. Tap **Copy as text** or **Share**.
+   - **A rule you should know about.** Tapestry's own rules (`AGENTS.md`, rule 9) say the AI must never write, quote or interpret Scripture or speak with spiritual authority. So this generator does not write sermon points. The AI only groups and orders the passages you chose, gives each group a plain label, and writes **open questions**. Anything that sounds like a claim, a promise or a made-up reference is thrown away and replaced by a built-in question. If you ever want it to write sermon text, that is a deliberate decision to change those rules; tell me first and I will go through it with you.
+2. **Spaced recall:** open a passage, tap **Memorize**, practise, then rate how well you recalled it (1 to 5). On Pro the wait before the next review **grows** each time you recall it well and **resets to tomorrow** when you do not. When passages are due, Home shows a line "N passages are ready to recall".
+3. **Streak insights:** the **Activity** tab shows your longest thread, active days in 30, your best weekday, a small chart of the last 8 weeks and what you did most.
+4. On the Free and Plus plans these show a short note with **See plans**.
+
+### 9e. Checks to do after you merge
+
+- Free test account (trial ended): tags show "included with Plus"; Compare shows the Plus note; Study guide shows the Pro note.
+- Plus test account: tags, advanced search, share link and Compare work; Ask, Study guide and Streak insights show Pro notes.
+- Pro or trial account: everything works.
+- Remember the SQL from Part 6 to end or restart a trial for a test email.
+
+---
+
+## Part 10. Turn on AI and "search by meaning" (your status page says they are off)
+
+Your `/status` page showed `"aiKey": false`. Until you add a key, these show nothing or say "not switched on": AI summaries, quizzes, **Ask your library**, Tapestry recommendations and reflections, and the **study guide questions** (the guide still works, but with the built-in questions only). After the update the page also says so in words under `warnings`.
+
+You have two choices. Pick one.
+
+**Choice A: a paid key (best quality, a few cents of use for most people).**
+1. Create an account at **console.anthropic.com**, add a small amount of credit, and in **API keys** create a key. In the same website set a **monthly spending limit** so a surprise can never cost you more than you decide.
+2. Coolify, **api** app, **Environment Variables**, add: `AI_API_KEY=paste-your-key` (leave `AI_PROVIDER` empty or `anthropic`). Save.
+3. For **search by meaning** and **Ask**, also add `EMBED_API_KEY=` with an **OpenAI** key (platform.openai.com, API keys, set a spending limit there too). Save.
+4. **Redeploy** the api app. Reload `/status`: `aiEnabled` and `embeddingsEnabled` should say `true`.
+
+**Choice B: free, runs on your own server (slower and simpler answers).** Your server setup already includes a small local AI called Ollama. In Coolify add `AI_PROVIDER=openai-compatible` and `AI_BASE_URL=http://ollama:11434/v1` (and for embeddings `EMBED_BASE_URL=http://ollama:11434/v1`). Redeploy. It uses server memory, so watch `free -h` as in Part 5.4.
+
+Every AI action counts against each plan's monthly allowance (Free 5, Plus 100, Pro 1000 requests), so your cost is bounded by how many people are on each plan.
+
+---
+
+## Part 11. New in this run, and how to test it
+
+No SQL. Upload the new files like Part 1, merge, then **Redeploy** the api app.
+
+- **Pro priority rendering (earshelf).** When several people listen at once, Pro voices are made first, normal next, the Free preview last. Nobody waits more than about 30 seconds behind newer Pro requests. By default two voices render at once; if your server is strong you can add `TTS_RENDER_SLOTS=3` in Coolify.
+- **Soundscapes (Tapestry Plus).** Open the player (tap the bar at the bottom while something plays). **Soundscape**: Soft rain, Prayer pad, or both, with a volume slider. It plays only while a passage is being read, fades in and out, and is made on the phone (no download).
+- **Guided memorization loop (Tapestry Plus).** Open a passage, **Memorize**, tap **Guided loop**. It reads the passage aloud, pauses for you to say it, hides more words, and repeats up to all words hidden, then reads it once more so you can check yourself. **Stop loop** ends it at any time. It uses your phone's own voice.
+- **Status page** now warns in words when AI or search-by-meaning is off.
+
+---
+
+## Part 12. Your approvals, and what is left
+
+You approved items 1 to 6, so they are built (Part 13 has the steps). One thing still needs a decision from you:
+
+**Hebrew and Greek word study (Tapestry Pro).** I checked the license as you asked, from the source's own page. **STEPBible-Data is licensed CC BY 4.0**: it may be used in any software without asking permission; you must credit it to "STEP Bible" linked to www.STEPBible.org, and any changes you make to the data should be recorded. It contains the Hebrew Old Testament (Leningrad codex, every word tagged with Strong's numbers and grammar), the Greek New Testament (every word tagged), and short word definitions for both languages. That is exactly what a word-by-word study screen needs, and the license allows it.
+
+What I have **not** done: loaded anything, or measured the size. The files are tab-separated text; I would keep only what the screen needs (the reference, the original word, its transliteration, Strong's number, a short meaning, and the grammar code), and I expect that to be tens of MB in your database, but I will not guess: like the cross-references loader, I would first run a "dry run" that downloads the files and prints the exact size before anything is saved.
+
+**To approve:** reply "approve Hebrew and Greek from STEPBible, check the size first". I will then build the loader with the dry run, a word-by-word screen for the passage you are reading (Pro), and the credit line.
+
+**Left to build later:** dramatized multi-voice narration (needs a list of who speaks each verse), and Tapestry "advanced guided paths".
+
+---
+
+## Part 13. New in this run (all six approved items) and how to switch them on
+
+### 13a. Upload and run three SQL files (in this order)
+
+1. Upload the new files like Part 1 (new branch, pull request, green checks, merge).
+2. In Supabase, **SQL Editor, New query**, paste and **Run** each file, one at a time, in this order. Each is safe to run twice: `supabase/migrations/0007_podcast_feed.sql`, then `0008_shared_vaults.sql`, then `0053_cross_references.sql`.
+3. In Coolify, **Redeploy** the api app.
+4. Optional: if the podcast feed address shows the wrong website name, add `PUBLIC_API_URL=https://your-api-address` (no slash at the end) in Coolify and redeploy.
+
+### 13b. Load the cross-reference data (Tapestry Pro, about 50,000 strongest pairs)
+
+1. GitHub, **Actions** tab, **Load cross-references**, **Run workflow**. Leave **dry run** ticked, keep the votes at **5**, run it.
+2. Open the finished run and read the log. You want lines like `Read 340000 lines`, `Understood ...`, `Keeping 5xxxx pairs`. If it says "does not look like what was expected", nothing was saved: send me the log.
+3. Run it again with **dry run unticked**. It loads the pairs in batches and ends with `Done`. It uses a few MB of database space.
+4. The data comes from OpenBible.info under CC BY 4.0. The app shows the credit line under the list.
+
+### 13c. How to try each new feature
+
+- **AI message draft (Tapestry Pro).** Needs the AI key from Part 10. Open a well, **Study guide**, make the guide, then under it **Message draft**, choose tone and length, **Write a draft**. The Scripture in the draft is your own Bible's text, word for word. The AI's writing is checked sentence by sentence: anything that quotes the verses, promises healing, speaks "for God", gives medical advice or names a passage you did not choose is thrown away. If too little is left it says so instead of showing something half-written. A draft counts as 2 AI requests.
+- **Private podcast feed (earshelf Pro).** Settings, **Private podcast feed**, **Create my feed**, copy the address. In **Apple Podcasts**: Library, the three dots, **Follow a Show by URL**. In **Overcast**: the plus button, **Add URL**. Pocket Casts and most others work too. **Spotify does not accept private feed addresses.** Then open a book, **Natural voice**, make an audiobook file, and tap **Add to my podcast feed**. Limits: 5 episodes and 300 MB per person; each episode and its file are removed 60 days after you add it. Anyone who has your feed address can listen, so **Make a new address** if it ever leaks (the old one stops working at once).
+- **Shared vaults.** earshelf: Settings, **Shared vaults**. Tapestry: Profile, **Together**. Start a vault (Partner holds 2 people, Family 8, Group 25), tap **Copy code** and send it. The other person opens the same screen, enters the code and taps **Join**. They need **no paid plan**. Starting a vault needs Plus (Tapestry partner) or Pro (the rest). In Tapestry open a well and tap **Share to a vault**; in earshelf paste an article link or write a short note. **Only wells (Tapestry) or article links and notes (earshelf) are shared: never private notes, files or book text.** The owner can remove people, make a new code or delete the vault; members can leave. Test it with two accounts.
+- **Related passages (Tapestry Pro).** Open a passage, tap **Related**. It lists related passages; tap one to open it.
+- **Natural voice reading (Tapestry Plus).** Open a passage in the World English Bible, King James or American Standard (choose it in Profile), tap **Listen** under the buttons. The voice is made when you press it (a few seconds to start) in parts, with the next part getting ready while one plays. Nothing is saved, so replaying makes it again. It counts toward the same monthly natural-voice time as earshelf (Plus 600 minutes). Other translations show a note instead.
+
+### 13d. If something does not work
+
+- `/status` shows `kokoro` `reachable: true` before narration or audiobooks can work.
+- A vault code says "did not work": codes are 8 letters and numbers with no 0, O, 1 or I; the owner can make a new one. A code made in earshelf does not work in Tapestry.
+- Podcast app says the feed is empty: add an episode first; some apps take a few minutes to refresh.
+- "Cross-references have not been set up": run the SQL file `0053` and then the **Load cross-references** action (13a, 13b).

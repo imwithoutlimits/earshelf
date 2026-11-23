@@ -5,6 +5,8 @@ const list = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean);
 
 export const config = {
   port: Number(e('PORT', '10000')),
+  /** Optional: the public address of this API, if it cannot be worked out from the request. Used in podcast feed links. */
+  publicApiUrl: e('PUBLIC_API_URL'),
   supabaseUrl: e('SUPABASE_URL').replace(/\/$/, ''),
   // New projects have sb_publishable_ / sb_secret_ keys. The older anon / service_role names are still accepted.
   anonKey: e('SUPABASE_PUBLISHABLE_KEY') || e('SUPABASE_ANON_KEY'),
@@ -20,6 +22,7 @@ export const config = {
     sampleRate: 24000,
     kokoroHostPort: e('TTS_KOKORO_HOSTPORT'),
     eleven: { key: e('ELEVENLABS_API_KEY'), base: 'https://api.elevenlabs.io', model: e('ELEVENLABS_MODEL', 'eleven_multilingual_v2'), voiceIds: list(e('ELEVENLABS_VOICE_IDS')), concurrency: Number(e('ELEVENLABS_CONCURRENCY', '2')), stability: 0.5 },
+    renderSlots: Number(e('TTS_RENDER_SLOTS', '2')),
     openaiBase: e('TTS_OPENAI_BASE_URL').replace(/\/$/, ''),
     openaiKey: e('TTS_OPENAI_API_KEY'),
     openaiModel: e('TTS_OPENAI_MODEL', 'kokoro'),

@@ -4,6 +4,8 @@ import { HttpError } from '../entitlements.ts';
 import { rest, signedUrl, storageDownload, storageUpload } from '../supa.ts';
 import { pcmToMp3 } from './ffmpeg.ts';
 import { renderChunk } from './render.ts';
+import { makeGate, type Priority } from './gate.ts';
+import { config } from '../config.ts';
 import type { TtsEngine } from './types.ts';
 
 export interface ChunkRequest {
@@ -12,6 +14,8 @@ export interface ChunkRequest {
   overrides?: NarrationOverrides; dialogueVoice?: string;
   /** Free preview: never read or write the stored audio cache (nothing may pile up on a free plan). The audio comes back inline. */
   ephemeral?: boolean;
+  /** Where this person waits when the voice engine is busy. Pro listeners go first. */
+  priority?: Priority;
   beforeSynthesis: (estimatedMinutes: number) => Promise<void>;
 }
 export interface ChunkResult {
@@ -24,6 +28,9 @@ export async function loadDocument(userId: string, docId: string): Promise<Parse
   if (!buf) throw new HttpError(409, 'document_not_synced', 'This document has not finished syncing yet. Wait a moment and try again.');
   return (JSON.parse(buf.toString('utf8')) as { parsed: ParsedDocument }).parsed;
 }
+
+/** One shared line for the voice engines, so Pro listeners are served first (see gate.ts). */
+export const renderGate = makeGate(config.tts.renderSlots);
 
 export async function generateChunk(r: ChunkRequest): Promise<ChunkResult> {
   const parsed = await loadDocument(r.userId, r.docId);
@@ -42,7 +49,7 @@ export async function generateChunk(r: ChunkRequest): Promise<ChunkResult> {
 
   const slice = utts.slice(range.start, range.end + 1);
   await r.beforeSynthesis(Math.max(1, Math.ceil(slice.reduce((n, u) => n + estimateSeconds(u), 0) / 60)));
-  const rendered = await renderChunk(slice, range.start, r.engine, r.voice, undefined, r.dialogueVoice);
+  const rendered = await renderGate.run(r.priority ?? 'normal', () => renderChunk(slice, range.start, r.engine, r.voice, undefined, r.dialogueVoice));
   const mp3 = await pcmToMp3(rendered.samples, rendered.sampleRate);
   if (r.ephemeral) return { chunkIndex: range.index, chunkCount: plan.length, start: range.start, end: range.end, durationMs: rendered.durationMs, items: rendered.items, url: `data:audio/mpeg;base64,${mp3.toString('base64')}`, cached: false, cacheKey };
   await storageUpload('audio', `${base}.mp3`, mp3, 'audio/mpeg');

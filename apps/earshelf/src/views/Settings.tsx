@@ -7,6 +7,8 @@ import { db, deleteAllUserContent, uid } from '../db';
 import { MODE_LABELS, VOICE_PROFILES, player, useHasFeature, usePlan, useSetting, THEMES, type ThemeSetting } from '../hooks';
 import { Reminders } from '../components/Reminders';
 import { NaturalVoice } from '../components/NaturalVoice';
+import { PodcastCard } from '../components/PodcastCard';
+import { VaultsCard } from '../components/VaultsCard';
 import { useUser } from '../auth';
 import { ApiError, apiPost, apiUrl, supabase } from '../supabase';
 import { pendingChanges, stopSync, syncNow, useSyncStatus } from '../sync';
@@ -103,6 +105,10 @@ export function Settings() {
         {billNote && <p role="alert" className="error-text">{billNote}</p>}
         <p className="hint">Your plan updates a moment after payment, once it is confirmed.</p>
       </div>
+
+      <PodcastCard />
+
+      <VaultsCard />
 
       <div className="card stack">
         <h2 className="sub">Listening</h2>

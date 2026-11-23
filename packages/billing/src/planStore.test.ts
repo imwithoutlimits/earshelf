@@ -110,7 +110,7 @@ test('every plan has copy for both apps, and promised-but-unbuilt items are mark
 
 test('a plan with no real features behind it is not on sale', () => {
   assert.deepEqual([...SELLABLE.earshelf], ['plus', 'pro']);
-  assert.deepEqual([...SELLABLE.tapestry], ['plus'], 'Tapestry Pro is made only of unbuilt features, so it stays off sale');
+  assert.deepEqual([...SELLABLE.tapestry], ['plus', 'pro'], 'Tapestry Pro has study guide, spaced recall and streak insights, so it can be sold');
   // Anything marked ready (not "soon") in a sellable plan must be a real line, and every sellable paid plan needs at least two ready features.
   for (const app of ['earshelf', 'tapestry'] as const) for (const plan of SELLABLE[app]) {
     assert.ok(PITCH[app][plan].lines.filter((l) => !l.soon && !/^Everything in/.test(l.text)).length >= 2, `${app} ${plan} needs real features`);

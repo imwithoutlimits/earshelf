@@ -7,7 +7,7 @@ export interface VerseRow { key: string; tr: string; book: number; chapter: numb
 export interface NoteRow { id: string; ref: string; body: string; createdAt: number; updatedAt: number }
 export interface BookmarkRow { id: string; ref: string; createdAt: number }
 export interface ProgressRow { wellId: string; index: number; updatedAt: number }
-export interface MemoRow { ref: string; level: number; confidence: number; reviewAt: number; updatedAt: number }
+export interface MemoRow { ref: string; level: number; confidence: number; reviewAt: number; updatedAt: number; /** Pro spaced recall (see @wells/scripture recall.ts). Absent on passages scheduled the basic way. */ ease?: number; intervalDays?: number; reps?: number; lapses?: number }
 export interface EventRow { id: string; kind: string; ref: string; day: string; amount: number; at: number; synced: 0 | 1 }
 export interface ListenRow { id: string; day: string; at: number; seconds: number; wellName?: string; synced: 0 | 1 }
 

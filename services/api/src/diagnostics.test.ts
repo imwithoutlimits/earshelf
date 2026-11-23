@@ -28,3 +28,14 @@ test('kokoro probe: not configured, reachable, unreachable', async () => {
   const down = await probeKokoro(withHost, (async () => { throw new Error('getaddrinfo ENOTFOUND kokoro'); }) as unknown as typeof fetch);
   assert.deepEqual({ c: down.configured, r: down.reachable }, { c: true, r: false });
 });
+
+test('missing AI and embedding settings are called out in plain words, and a configured server is quiet', () => {
+  const off = setupReport(cfg({ ai: { provider: 'anthropic', key: '', model: 'm', base: '' }, embed: { base: '', key: '', model: 'm', dims: 384 } }));
+  assert.ok(off.warnings.some((w) => /AI is switched off/.test(w)));
+  assert.ok(off.warnings.some((w) => /Search by meaning is switched off/.test(w)));
+  assert.deepEqual([off.settings.aiEnabled, off.settings.embeddingsEnabled], [false, false]);
+  const on = setupReport(cfg({ ai: { provider: 'anthropic', key: 'k', model: 'm', base: '' }, embed: { base: '', key: 'k', model: 'm', dims: 384 } }));
+  assert.ok(!on.warnings.some((w) => /AI is switched off|Search by meaning/.test(w)));
+  const local = setupReport(cfg({ ai: { provider: 'openai-compatible', key: '', model: 'm', base: 'http://ollama:11434/v1' } }));
+  assert.equal(local.settings.aiEnabled, true, 'a local Ollama needs no key');
+});

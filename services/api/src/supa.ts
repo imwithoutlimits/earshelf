@@ -69,9 +69,9 @@ async function listPrefix(bucket: string, prefix: string, skip: string[] = []): 
 }
 
 /** Tables that carry a product column, shared by every app. */
-export const PRODUCT_TABLES = ['wells', 'playlists', 'audio_assets', 'playback_progress', 'bookmarks', 'highlights', 'notes', 'downloads', 'search_queries', 'recommendations', 'notifications', 'processing_jobs', 'ai_generations', 'user_preferences', 'usage_events', 'review_cards', 'xp_events', 'activity_days', 'listening_sessions', 'weekly_targets', 'badge_awards', 'weekly_insights', 'push_subscriptions'];
+export const PRODUCT_TABLES = ['wells', 'playlists', 'audio_assets', 'playback_progress', 'bookmarks', 'highlights', 'notes', 'downloads', 'search_queries', 'recommendations', 'notifications', 'processing_jobs', 'ai_generations', 'user_preferences', 'usage_events', 'review_cards', 'xp_events', 'activity_days', 'listening_sessions', 'weekly_targets', 'badge_awards', 'weekly_insights', 'vault_comments', 'vault_items', 'vault_members', 'vaults', 'push_subscriptions'];
 /** Tables that only one app uses, so they are cleared only for that app. */
-const APP_ONLY_TABLES: Record<string, string[]> = { earshelf: ['documents', 'document_pronunciations'], tapestry: [] };
+const APP_ONLY_TABLES: Record<string, string[]> = { earshelf: ['documents', 'document_pronunciations', 'podcast_episodes', 'podcast_feeds'], tapestry: [] };
 
 /** The delete requests for one app's content. Every request names the user, and shared tables also name the product. */
 export function deletionPlan(userId: string, product: 'earshelf' | 'tapestry'): string[] {
@@ -91,4 +91,11 @@ export async function deleteUserContent(userId: string, product: 'earshelf' | 't
     }
   }
   for (const path of deletionPlan(userId, product)) await rest(path, { method: 'DELETE', prefer: 'return=minimal' });
+}
+
+/** Deletes specific files (not whole folders). Used when a podcast episode expires or is removed. */
+export async function storageRemove(bucket: string, paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  const res = await fetch(`${config.supabaseUrl}/storage/v1/object/${bucket}`, { method: 'DELETE', headers: svcHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ prefixes: paths }) });
+  if (!res.ok) throw new Error(`Storage delete ${res.status}`);
 }
