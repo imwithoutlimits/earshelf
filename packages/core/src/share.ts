@@ -1,7 +1,7 @@
 export type ShareIntent = { kind: 'url'; url: string } | { kind: 'text'; text: string; title?: string };
 
 const URL_RE = /https?:\/\/[^\s<>"']+/i;
-const cleanUrl = (s: string): string | null => {
+export const cleanUrl = (s: string): string | null => {
   try { const u = new URL(s.trim().replace(/[.,;)]+$/, '')); return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : null; } catch { return null; }
 };
 
@@ -18,4 +18,10 @@ export function parseShare(search: string): ShareIntent | null {
   if (url && (direct || text.replace(fromText ?? '', '').trim().length < 40)) return { kind: 'url', url };
   if (text.length >= 40) return { kind: 'text', text: text.slice(0, 200_000), title: p.get('title')?.trim() || undefined };
   return null;
+}
+
+/** A link a friend can open to add the same web article to their own library. Nothing is stored or hosted: the link only carries the article's address. */
+export function makeShareLink(appOrigin: string, articleUrl: string): string | null {
+  const url = cleanUrl(articleUrl);
+  return url ? `${appOrigin.replace(/\/+$/, '')}/?import=${encodeURIComponent(url)}` : null;
 }

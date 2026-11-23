@@ -16,3 +16,4 @@ export * from './chapters.ts';
 export * from './listening.ts';
 export * from './titles.ts';
 export * from './notify.ts';
+export * from './library.ts';
