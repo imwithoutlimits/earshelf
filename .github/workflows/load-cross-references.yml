@@ -1,0 +1,32 @@
+name: Load cross-references
+# Run by hand only: Actions tab, "Load cross-references", Run workflow.
+# Loads the OpenBible.info cross-references (CC BY 4.0) for Tapestry Pro. Run migration 0053 in Supabase first.
+# Tip: run it once with "dry run" ticked to check the file, then again with it unticked.
+# Needs the repository secrets SUPABASE_URL and SUPABASE_SECRET_KEY (the same ones "Load Tapestry content" uses).
+on:
+  workflow_dispatch:
+    inputs:
+      min_votes:
+        description: 'Keep pairs with at least this many votes. 5 keeps the stronger ones (about 50,000 pairs, a few MB). Lower numbers keep more and use more database space.'
+        default: '5'
+      dry_run:
+        description: 'Only check the file, write nothing'
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: node --experimental-strip-types scripts/load-cross-references.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          MIN_VOTES: ${{ inputs.min_votes }}
+          DRY_RUN: ${{ inputs.dry_run }}
