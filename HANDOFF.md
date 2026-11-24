@@ -141,3 +141,44 @@ Read `UPGRADE-GUIDE.md` for the owner steps. What changed in the code:
 Not built yet (shown as "Soon"): advanced search and tags, link sharing, Talk to Your Library, private podcast feed, shared vaults, priority queue; Tapestry natural-voice narration, audio memorization loops, side-by-side translations, soundscapes, partner sharing, group wells, cross-reference map, Hebrew/Greek word study, dramatized narration, family vaults, sermon generator. Data-heavy ones need an approved data source first.
 
 Could not be run where this was written (no packages installed): the React/Dexie type check and the browser tests. CI runs them.
+
+## Run 2: features that were "Soon" (latest)
+
+No migration this run. New server routes: `POST /v1/ai/library-ask` (Pro, `library_chat`) and `POST /v1/tapestry/study-guide` (Pro, `sermon_generator`).
+
+- **Tags and advanced search (Plus, `tags_search`)**: pure logic in `packages/core/src/library.ts` (`parseLibraryQuery`, `searchLibrary`, `addTag`, `tagCounts`); tags live in `DocRecord.tags` and sync through the existing `documents.tags` column. Editing tags does NOT touch `updatedAt`, so it never triggers a re-index or new audio. Re-cleaning a document (`reprocess`) now keeps tags and `sourceUrl`.
+- **Share a link (Plus, `link_sharing`)**: only web articles. `DocRecord.sourceUrl` is saved on import and stays on that device (no database column). `makeShareLink` in `packages/core/src/share.ts` produces `/?import=<url>`, which the existing `parseShare` already understands. No content is hosted.
+- **Talk to Your Library (Pro)**: `semanticPassages` (full passages) then `askLibrary` in `services/api/src/ai/library.ts`. Every answer must cite a passage that was really retrieved or it is shown as "not found". Passages are treated as data, never instructions.
+- **Tapestry Plus: Compare**: `alignVerses` in `packages/scripture/src/compare.ts`; the Compare sheet in `views/passage.tsx` is gated by `translation_compare`. It shows whatever translations are enabled in the database.
+- **Tapestry Pro**: study guide and talk outline (`packages/scripture/src/studyGuide.ts`, `services/api/src/tapestry/studyGuide.ts`) stays inside AGENTS rule 9: the AI only orders, labels and asks open questions, and `assembleGuide` keeps only the chosen passages and guardrail-clean text; verses are inserted from the person's own Bible text. Spaced recall (`recall.ts`, SM-2 style, Pro only; Free and Plus keep `nextReview`) and streak analytics (`packages/activity/src/analytics.ts`).
+- Tapestry Pro is on sale (`SELLABLE.tapestry`). Still "Soon": earshelf podcast feed, shared vaults, priority queue; Tapestry natural voice, audio memorization loops, soundscapes, partner sharing, group wells, cross-reference map, Hebrew/Greek, dramatized narration, family vaults.
+
+## Run 3
+
+- **Priority rendering (Pro `priority_queue`)**: `services/api/src/tts/gate.ts` is one shared line in front of the voice engine (`renderGate` in `tts/generate.ts`, slots from `TTS_RENDER_SLOTS`, default 2). Pro = high, normal, Free preview = low; anyone waiting 30 s or more goes next, so nobody starves. Exports use it too.
+- **Tapestry soundscapes (Plus `soundscapes`)**: `apps/tapestry/src/ambient.ts` makes rain and a pad with Web Audio (no audio files, nothing to license); `views/ambient.tsx` has `AmbientHost` (mounted in `App.tsx`, follows the player) and `AmbientControls` (player screen). Pure parts and tests in `packages/scripture/src/ambient.ts`.
+- **Guided memorization loop (Plus `memorize_loops`)**: `loopPlan` in `packages/scripture/src/loop.ts`, run by `Memorize` in `views/passage.tsx` using the device voice (`apps/tapestry/src/speech.ts`).
+- **Status page** warns when `AI_API_KEY` or `EMBED_API_KEY` is empty (`aiEnabled`, `embeddingsEnabled`).
+- **Waiting on the owner's approval** (see `UPGRADE-GUIDE.md` Part 12): AI-written sermon text (changes AGENTS rule 9), podcast feed storage, shared vaults and partner sharing (new tables), cross-reference map data (OpenBible CC BY 4.0), Hebrew/Greek data and license, Scripture narration storage. Do not start these without that approval.
+
+## Run 4 (owner-approved items 1 to 6)
+
+New migrations: `0007_podcast_feed.sql`, `0008_shared_vaults.sql`, `0053_cross_references.sql` (all run by hand). New optional env: `PUBLIC_API_URL`. New action: `load-cross-references.yml` (dry run first).
+
+- **AI message draft** (`sermon_generator`, route `POST /v1/tapestry/sermon-draft`): owner-approved change to AGENTS rule 9 WITH LIMITS that live in code in `packages/scripture/src/sermon.ts` (`cleanProse`/`assembleDraft`): no quoting or restating chosen passages (6+ words in a row), no promises, no medical advice, no speaking for God, no unchosen passages, labelled as an AI draft; verses are inserted by the app. Counts as 2 `ai_requests`. Do not loosen these checks without the owner's explicit approval.
+- **Podcast feed** (`podcast_feed`): `services/api/src/podcast.ts`. Secret token per person, public routes `/feed/<token>.xml` and `/feed/<token>/<episode>.<ext>` (302 to a one hour signed storage link), 5 episodes / 300 MB / 60 days, hourly-ish sweeper. Episodes point at finished export files; expiry deletes the file.
+- **Shared vaults and partner sharing**: `services/api/src/vaults.ts` (all rules server-side; tables are not readable by clients). Tapestry shares wells only (`well`), earshelf shares `link` and `note` only, never files or book text. Limits 2/8/25 people, 5 owned vaults, 200 items, 50 comments per item, 8 character code (no 0 O 1 I). Owner needs the plan (Tapestry partner = Plus `partner_sharing`, family and group = Pro `family_vaults`, earshelf = Pro `shared_vaults`); members need none. Vault tables are in `PRODUCT_TABLES`. UI: `packages/ui/src/vaults.tsx`, `apps/earshelf/src/components/VaultsCard.tsx`, `apps/tapestry/src/views/together.tsx`.
+- **Cross-references** (`cross_ref_graph`): OpenBible.info CC BY 4.0, `packages/scripture/src/crossrefs.ts`, loader `scripts/load-cross-references.mjs` refuses a file it does not understand. Route `GET /v1/tapestry/cross-refs`; table readable only by the server. The credit line is shown in the app and listed in `LICENSES.md`.
+- **Scripture narration** (Plus `natural_tts`): `services/api/src/tapestry/narrate.ts`, route `POST /v1/tapestry/narrate`. Never stored; WEB, KJV and ASV only (`NARRATION_TRANSLATIONS`); counts in `server_tts_minutes` for product `tapestry`; goes through the priority gate. Client: `apps/tapestry/src/views/narrate.tsx`.
+- **Verified, not built**: STEPBible-Data (Hebrew/Greek) is CC BY 4.0, credit "STEP Bible" linked to www.STEPBible.org, record changes made to the data. Waiting for the owner's go-ahead and a dry-run size check before loading anything.
+- Corrected earlier guide text: extra translations are loaded by the GitHub action "Load Tapestry content" (translations input), not by Owner setup.
+- Still "Soon": Tapestry advanced guided paths, Hebrew and Greek word study, dramatized multi-voice narration.
+
+## Run 5
+
+New migration `0054_original_languages.sql` (run by hand). New action `load-original-languages.yml` (dry run first). No new env.
+
+- **Hebrew and Greek word study** (`interlinear`, route `GET /v1/tapestry/original`, table `original_verses`: one row per verse, words as compact JSON `[word, transliteration, gloss, strongs]`). `packages/scripture/src/original.ts` reads STEPBible TAHOT/TAGNT by each file's own header row. The Hebrew reader is tested on real TAHOT rows; the **Greek layout is assumed and unverified** until the first dry run, and the loader refuses a language whose file does not look right (the other language still loads). License: CC BY 4.0, credit `STEP_CREDIT` is shown in the app and in `LICENSES.md`; files are downloaded from STEPBible's repo, never copied here (their data file asks not to be redistributed). Never add TTESV (CC BY-NC).
+- **Dramatized reading** (`dramatized_audio`, `mode: 'dramatized'` on `POST /v1/tapestry/narrate`): `packages/scripture/src/dramatize.ts`. Roles narrator / divine / speaker from quotation marks only; divine requires God, the LORD, Jesus or Christ named before the speech word and not as a possessive; uncertain means speaker. A test pins that no word is ever added, lost or changed. Segmentation runs over the whole passage before it is cut into parts, so a quote keeps its voice across parts. `pickCast` chooses three voices, falling back safely.
+- Only "Advanced guided paths" remains marked Soon.
+

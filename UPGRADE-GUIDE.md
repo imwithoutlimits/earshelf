@@ -294,7 +294,7 @@ The plan screens show anything not built yet with a **Soon** label, so nobody pa
 | earshelf Pro | Questions about a document, quizzes and flashcards, search across all documents, explain tables, batch import, unlimited exports, Talk to Your Library, priority audio rendering, **private podcast feed, shared vaults** | |
 | Tapestry Free | Reading, wells, bookmarks, activity | |
 | Tapestry Plus | AI search, recommendations, reflection prompts, AI-drafted wells, translations side by side, guided audio memorization loops, ambient soundscapes, **natural voice reading, partner sharing** | |
-| Tapestry Pro | Study guide and talk outline, **AI message draft**, spaced recall, streak insights, **related passages, family vaults and small groups** (plus everything in Plus) | Advanced guided paths, Hebrew and Greek word study (needs your approval, Part 12), dramatized narration |
+| Tapestry Pro | Study guide and talk outline, AI message draft, spaced recall, streak insights, related passages, family vaults and small groups, **Hebrew and Greek word study, dramatized multi-voice reading** (plus everything in Plus) | Advanced guided paths |
 
 Tapestry's voice today is the phone's own voice, not Kokoro, so "natural voice narration" is marked Soon there. **Tapestry Pro is on sale** now that it has three features of its own (`SELLABLE` in `packages/billing/src/pitch.ts`).
 
@@ -383,17 +383,16 @@ No SQL. Upload the new files like Part 1, merge, then **Redeploy** the api app.
 
 ---
 
-## Part 12. Your approvals, and what is left
+## Part 12. Hebrew and Greek word study, and what is left
 
-You approved items 1 to 6, so they are built (Part 13 has the steps). One thing still needs a decision from you:
+You approved it, so it is built (Part 14 has the steps). What you should know:
 
-**Hebrew and Greek word study (Tapestry Pro).** I checked the license as you asked, from the source's own page. **STEPBible-Data is licensed CC BY 4.0**: it may be used in any software without asking permission; you must credit it to "STEP Bible" linked to www.STEPBible.org, and any changes you make to the data should be recorded. It contains the Hebrew Old Testament (Leningrad codex, every word tagged with Strong's numbers and grammar), the Greek New Testament (every word tagged), and short word definitions for both languages. That is exactly what a word-by-word study screen needs, and the license allows it.
+- **License (checked from STEPBible's own pages):** STEPBible-Data is **CC BY 4.0**. It may be used in software without asking; the credit is shown next to the words in the app; and changes should be recorded, which the credit line does ("some columns were left out and separator marks removed; no wording was changed"). The data file itself also says **please do not redistribute it yourself**, so the loader downloads the files **straight from STEPBible's own repository** and nothing is copied into your repo. Their **TTESV** text is non-commercial (CC BY-NC) and is **not** used.
+- **What the screen shows:** for each verse, the Hebrew (Old Testament) or Greek (New Testament) words in reading order, how each sounds, a short English meaning and the Strong's number. It does not show grammar labels or full dictionary entries; those are a later step.
+- **Honest status:** I checked the Hebrew reader against real rows from the Hebrew file. I could not open the Greek file here, so the Greek reader is written from my understanding of its layout and is **proved by the dry run**: if it does not recognise the real Greek file, **nothing Greek is saved**, the Hebrew still loads, and the log prints the first lines of the Greek file so I can fix the reader in minutes.
+- **Size:** the data is stored one row per verse (about 31,000 rows). The dry run prints the exact size before anything is saved.
 
-What I have **not** done: loaded anything, or measured the size. The files are tab-separated text; I would keep only what the screen needs (the reference, the original word, its transliteration, Strong's number, a short meaning, and the grammar code), and I expect that to be tens of MB in your database, but I will not guess: like the cross-references loader, I would first run a "dry run" that downloads the files and prints the exact size before anything is saved.
-
-**To approve:** reply "approve Hebrew and Greek from STEPBible, check the size first". I will then build the loader with the dry run, a word-by-word screen for the passage you are reading (Pro), and the credit line.
-
-**Left to build later:** dramatized multi-voice narration (needs a list of who speaks each verse), and Tapestry "advanced guided paths".
+**Left to build later:** Tapestry **advanced guided paths**. That is the only item still marked Soon.
 
 ---
 
@@ -427,3 +426,28 @@ What I have **not** done: loaded anything, or measured the size. The files are t
 - A vault code says "did not work": codes are 8 letters and numbers with no 0, O, 1 or I; the owner can make a new one. A code made in earshelf does not work in Tapestry.
 - Podcast app says the feed is empty: add an episode first; some apps take a few minutes to refresh.
 - "Cross-references have not been set up": run the SQL file `0053` and then the **Load cross-references** action (13a, 13b).
+
+---
+
+## Part 14. Switch on Hebrew and Greek, and try dramatized reading
+
+### 14a. Hebrew and Greek word study (Tapestry Pro)
+
+1. Upload the new files like Part 1 (new branch, pull request, green checks, merge) and **Redeploy** the api app in Coolify.
+2. Supabase **SQL Editor**: run `supabase/migrations/0054_original_languages.sql`.
+3. GitHub, **Actions** tab, **Load Hebrew and Greek**, **Run workflow**. Leave **dry run** ticked and the languages as `he,gr`. Run it.
+4. Open the finished run and read the log. For each of Hebrew and Greek it says how many words it read, how many verses, and **"About N MB of data"**. Check three things:
+   - Hebrew: about 300,000 words in about 23,000 verses. Greek: about 138,000 words in about 7,900 verses.
+   - The size is something you are happy to use (your free database has 500 MB).
+   - There is **no** line saying "NOTHING was loaded".
+5. If Greek says "NOTHING was loaded" or "No words were understood": copy the whole log to me. The log shows the first lines of the real Greek file, which is all I need. You can already load Hebrew meanwhile.
+6. Happy with the log? Run it again with **dry run unticked**. It saves in batches and ends with "done".
+7. In Tapestry, open a passage and tap **Original**. Pro or trial accounts see the words; others see a note. A whole chapter shows the first 60 verses; open a smaller passage for the rest.
+
+### 14b. Dramatized reading (Tapestry Pro)
+
+1. Open a passage in the World English Bible, King James or American Standard, under the buttons find **Natural voice**.
+2. Choose **Dramatized** instead of **One voice**, then **Listen**. The narrator, God and Jesus, and every other person who speaks each get their own voice.
+3. **How it decides:** from the quotation marks and who is named as speaking, nothing else. God, the LORD, Jesus or Christ named **before** the speaking word ("Jesus answered him," "God said,") gets the divine voice. Anyone else, including people speaking *to* Jesus, gets the ordinary speaker voice. When the rules are not sure, it uses the ordinary voice, never the divine one. A speech that runs over several verses keeps its voice. So now and then a line may be read by the wrong voice; the app says so on screen.
+4. **It never changes a word.** The software checks this automatically: the stretches put back together must read exactly like the verse.
+5. It uses three different voices if your voice server has them (a male voice for God and Jesus, a third for others) and falls back to fewer if it does not. It counts toward the same monthly natural-voice time as the one-voice reading, and Pro listeners are served first when the server is busy.
