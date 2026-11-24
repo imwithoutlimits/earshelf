@@ -42,11 +42,17 @@ export function makeOpenAiLike(c: OpenAiLikeConfig, f: typeof fetch = fetch, wai
       return c.voices.map(asVoice);
     },
     async synthesize(text: string, voice: string): Promise<Pcm> {
-      const res = await withRetry(() => f(`${c.base}/audio/speech`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(c.key ? { Authorization: `Bearer ${c.key}` } : {}) },
-        body: JSON.stringify({ model: c.model, input: text, voice, response_format: c.format }),
-      }), wait);
+      let res: Response;
+      try {
+        res = await withRetry(() => f(`${c.base}/audio/speech`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(c.key ? { Authorization: `Bearer ${c.key}` } : {}) },
+          body: JSON.stringify({ model: c.model, input: text, voice, response_format: c.format }),
+        }), wait);
+      } catch {
+        // "fetch failed" tells nobody anything. This is almost always the voice service not running or the address being wrong.
+        throw new Error(`The natural voice server (${c.label}) could not be reached. Check that its service is running and that its address setting is right, then try again.`);
+      }
       if (!res.ok) throw new Error(`The voice server returned ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const buf = Buffer.from(await res.arrayBuffer());
       return { samples: c.format === 'pcm' ? bufferToPcm(buf) : await decodeToPcm(buf, c.sampleRate), sampleRate: c.sampleRate };
