@@ -17,7 +17,7 @@ import { usePlan } from '../billing';
 import { useNav } from '../nav';
 
 export function PassageView({ k, wellId }: { k: string; wellId?: string }) {
-  const plan = usePlan(); const [cmpLocked, setCmpLocked] = useState(false); const [related, setRelated] = useState(false);
+  const plan = usePlan(); const [cmpLocked, setCmpLocked] = useState(false); const [related, setRelated] = useState(false); const [orig, setOrig] = useState(false);
   const tr = useTranslation(); const [cmp, setCmp] = useState<Array<{ info: TranslationInfo; p: Passage | null }> | null>(null);
   const nav = useNav(); const [p, setP] = useState<Passage | null | undefined>(undefined); const [ctx, setCtx] = useState<Passage | null>(null); const [prompts, setPrompts] = useState<{ label: string; list: string[] } | null>(null); const [note, setNote] = useState('');
   const marked = useLiveQuery(() => db.bookmarks.where('ref').equals(k).count(), [k], 0); const notes = useLiveQuery(() => db.notes.where('ref').equals(k).toArray(), [k], []);
@@ -40,6 +40,7 @@ export function PassageView({ k, wellId }: { k: string; wellId?: string }) {
         <button className="btn" onClick={async () => setCtx(ctx ? null : await loadChapter(k))}>{ctx ? 'Hide context' : 'Context'}</button>
         <button className="btn" onClick={async () => { if (!hasFeature(plan, 'translation_compare')) { setCmpLocked(true); return; } const ids = await enabledTranslations(); setCmp(await Promise.all(ids.map(async (id) => ({ info: infoOf(id), p: await loadPassage(k, id) })))); }}>Compare</button>
         <button className="btn" onClick={() => setRelated(true)}>Related</button>
+        <button className="btn" onClick={() => setOrig(true)}>Original</button>
       </div>
       <NaturalListen k={k} />
       {ctx && <div className="sec"><div className="label">Whole chapter · {ctx.title}</div><p className="read" style={{ fontSize: 18, marginTop: 6 }}>{ctx.verses.map((v) => <span key={v.n}><sup>{v.n}</sup>{v.text} </span>)}</p></div>}
@@ -47,6 +48,7 @@ export function PassageView({ k, wellId }: { k: string; wellId?: string }) {
       <div className="sec"><div className="b">Notes</div>{notes.map((n) => <p key={n.id} className="serif" style={{ fontSize: 18, margin: '8px 0' }}>{n.body}</p>)}<textarea className="ta" aria-label="Write a note" placeholder="Write a note. It stays private." value={note} onChange={(e) => setNote(e.target.value)} /><button className="btn primary" style={{ marginTop: 8 }} disabled={!note.trim()} onClick={async () => { const now = Date.now(); await db.notes.add({ id: uid(), ref: k, body: note.trim(), createdAt: now, updatedAt: now }); setNote(''); await award('write_note', k); }}>Save note</button></div>
       <p className="sm mut" style={{ marginTop: 16 }}>{tr.notice}</p>
       {cmp && <CompareSheet items={cmp} onClose={() => setCmp(null)} />}
+      {orig && <OriginalSheet k={k} locked={!hasFeature(plan, 'interlinear')} onClose={() => setOrig(false)} />}
       {related && <RelatedSheet k={k} locked={!hasFeature(plan, 'cross_ref_graph')} onClose={() => setRelated(false)} />}
       {cmpLocked && <Sheet label="Compare translations" onClose={() => setCmpLocked(false)}><h2>Compare translations</h2><p className="mut">Reading translations side by side is included with Plus. On the Free plan you read one translation at a time, and you can switch it in Profile.</p><button className="btn primary big" onClick={() => { setCmpLocked(false); openPlans(); }}>See plans</button></Sheet>}
     </div>
@@ -75,6 +77,44 @@ function CompareSheet({ items, onClose }: { items: Array<{ info: TranslationInfo
     </Sheet>
   );
 }
+/** Pro: the Hebrew (Old Testament) or Greek (New Testament) words behind the passage, with a pronunciation, a short English meaning and the Strong's number. */
+function OriginalSheet({ k, locked, onClose }: { k: string; locked: boolean; onClose: () => void }) {
+  const [data, setData] = useState<{ credit: string; truncated: boolean; verses: Array<{ n: number; lang: 'he' | 'gr'; words: Array<[string, string, string, string]> }> } | null>(null); const [err, setErr] = useState('');
+  useEffect(() => { if (!locked) api.apiGet<NonNullable<typeof data>>(`/v1/tapestry/original?ref=${encodeURIComponent(k)}`).then(setData).catch((e) => setErr(e instanceof Error ? e.message : 'Could not load the original words.')); }, [k, locked]);
+  return (
+    <Sheet label="Original language" onClose={onClose}>
+      <h2>Original language</h2>
+      {locked ? (
+        <>
+          <p className="mut">See the Hebrew or Greek words behind each verse, with how they sound, a short meaning and the Strong's number. Included with Pro.</p>
+          <button className="btn primary big" onClick={() => { onClose(); openPlans(); }}>See plans</button>
+        </>
+      ) : err ? <p role="alert" className="up-error">{err}</p>
+        : !data ? <p className="mut">Looking…</p>
+        : data.verses.length === 0 ? <p className="mut">No original-language words were found for this passage.</p>
+        : (
+          <>
+            {data.verses.map((v) => (
+              <div key={v.n} className="orig-verse" dir={v.lang === 'he' ? 'rtl' : 'ltr'}>
+                <span className="orig-n" dir="ltr">{v.n}</span>
+                {v.words.map((w, i) => (
+                  <div key={i} className="orig-w">
+                    <div className="orig-o" lang={v.lang === 'he' ? 'he' : 'el'}>{w[0]}</div>
+                    <div className="orig-t" dir="ltr">{w[1]}</div>
+                    <div className="orig-g" dir="ltr">{w[2]}</div>
+                    <div className="orig-s" dir="ltr">{w[3]}</div>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {data.truncated && <p className="sm mut">Showing the first 60 verses. Open a smaller passage to see the rest.</p>}
+            <p className="sm mut">Short meanings are word-by-word helps, not full definitions. {data.credit}</p>
+          </>
+        )}
+    </Sheet>
+  );
+}
+
 /** Pro: other passages that speak to the one you are reading, from the OpenBible.info cross-references. */
 function RelatedSheet({ k, locked, onClose }: { k: string; locked: boolean; onClose: () => void }) {
   const nav = useNav();
