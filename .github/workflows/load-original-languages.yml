@@ -1,0 +1,33 @@
+name: Load Hebrew and Greek
+# Run by hand only: Actions tab, "Load Hebrew and Greek", Run workflow.
+# Loads the STEPBible-Data Hebrew and Greek word data (CC BY 4.0) for Tapestry Pro. Run migration 0054 in Supabase first.
+# Run it ONCE with "dry run" ticked: it prints the exact size and saves nothing. Then run it again with dry run unticked.
+# Needs the repository secrets SUPABASE_URL and SUPABASE_SECRET_KEY (the same ones "Load Tapestry content" uses).
+on:
+  workflow_dispatch:
+    inputs:
+      languages:
+        description: 'Which to load: he (Hebrew Old Testament), gr (Greek New Testament), or he,gr for both'
+        default: 'he,gr'
+      dry_run:
+        description: 'Only check the files and show the size, write nothing'
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: node --experimental-strip-types scripts/load-original-languages.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          LANGS: ${{ inputs.languages }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          GITHUB_TOKEN: ${{ github.token }}
