@@ -39,3 +39,21 @@ test('missing AI and embedding settings are called out in plain words, and a con
   const local = setupReport(cfg({ ai: { provider: 'openai-compatible', key: '', model: 'm', base: 'http://ollama:11434/v1' } }));
   assert.equal(local.settings.aiEnabled, true, 'a local Ollama needs no key');
 });
+
+test('kokoro probe: a proxy or wrong port that answers 404 is NOT counted as the voice service', async () => {
+  const withHost = { ...config, tts: { ...config.tts, kokoroHostPort: 'kokoro:8880' } } as typeof config;
+  const notKokoro = await probeKokoro(withHost, (async () => new Response('404 page not found', { status: 404 })) as unknown as typeof fetch);
+  assert.equal(notKokoro.reachable, false);
+  assert.match(notKokoro.detail, /HTTP 404.*not the Kokoro voice service/);
+});
+
+test('voice test: proves the voice really speaks, and says plainly when it does not', async () => {
+  const { testKokoroVoice } = await import('./diagnostics.ts');
+  const withHost = { ...config, tts: { ...config.tts, kokoroHostPort: 'kokoro:8880' } } as typeof config;
+  const audio = (async () => new Response(new Uint8Array(48000), { status: 200 })) as unknown as typeof fetch;
+  assert.equal((await testKokoroVoice(withHost, audio)).ok, true);
+  assert.match((await testKokoroVoice(withHost, (async () => new Response('x', { status: 500 })) as unknown as typeof fetch)).detail, /HTTP 500/);
+  assert.match((await testKokoroVoice(withHost, (async () => new Response(new Uint8Array(10), { status: 200 })) as unknown as typeof fetch)).detail, /only 10 bytes/);
+  assert.match((await testKokoroVoice(withHost, (async () => { throw new Error('getaddrinfo ENOTFOUND kokoro'); }) as unknown as typeof fetch)).detail, /ENOTFOUND/);
+  assert.equal((await testKokoroVoice({ ...config, tts: { ...config.tts, kokoroHostPort: '' } } as typeof config)).ok, false);
+});

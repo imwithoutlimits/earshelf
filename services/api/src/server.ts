@@ -21,7 +21,7 @@ import { signedUrl } from './supa.ts';
 import { addComment, addItem, createVault, deleteVault, displayNameFor, joinVault, leaveVault, listVaults, removeItem, removeMember, rotateCode, showCode, supaVaultStore, vaultDetail, type VaultProduct } from './vaults.ts';
 import { jobStatus, startExport } from './exportJob.ts';
 import { report } from './monitor.ts';
-import { logStartupReport, probeKokoro, setupReport } from './diagnostics.ts';
+import { logStartupReport, probeKokoro, setupReport, testKokoroVoice } from './diagnostics.ts';
 import { tapestryRoutes } from './tapestry/routes.ts';
 import { earshelfActivityRoutes } from './earshelf/activity.ts';
 import { earshelfPushRoutes, startPushScheduler } from './earshelf/push.ts';
@@ -90,7 +90,13 @@ async function podcastState(userId: string, base: string) {
 const routes: Record<string, Route> = {
   'GET /health': { auth: false, run: async () => ({ ok: true }) },
   // Open this in a browser when something is wrong: it says which settings are missing and whether the voice engine answers. Yes/no only, no secrets.
-  'GET /status': { auth: false, run: async () => { const r = setupReport(); return { ok: r.problems.length === 0, problems: r.problems, warnings: r.warnings, settings: r.settings, kokoro: await probeKokoro(), time: new Date().toISOString() }; } },
+  // Add ?voice=1 to also make the voice speak one short sentence, which proves natural voices really work (not just that the container answers).
+  'GET /status': { auth: false, run: async (c) => {
+    const r = setupReport();
+    let voiceTest: Awaited<ReturnType<typeof testKokoroVoice>> | undefined;
+    if (c.query.get('voice')) { limit('status-voice', 6, 60_000); voiceTest = await testKokoroVoice(); }
+    return { ok: r.problems.length === 0, problems: r.problems, warnings: r.warnings, settings: r.settings, kokoro: await probeKokoro(), ...(voiceTest ? { voiceTest } : {}), time: new Date().toISOString() };
+  } },
 
   'GET /v1/capabilities': { auth: true, run: async (c) => ({
     plan: await c.plan(),
