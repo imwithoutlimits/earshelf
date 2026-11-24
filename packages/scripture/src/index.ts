@@ -14,3 +14,5 @@ export * from './ambient.ts';
 export * from './loop.ts';
 export * from './sermon.ts';
 export * from './crossrefs.ts';
+export * from './original.ts';
+export * from './dramatize.ts';
