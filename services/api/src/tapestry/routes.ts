@@ -1,4 +1,4 @@
-import { CROSSREF_CREDIT, chosenRefs, classifyQuery, formatReference, parseRefKey, rankRelated, refKey, versesIn, DEFAULT_TRANSLATION } from '../../../../packages/scripture/src/index.ts';
+import { DRAMATIZED_NOTE, pickCast, segmentVerses, STEP_CREDIT, verseKeys, CROSSREF_CREDIT, chosenRefs, classifyQuery, formatReference, parseRefKey, rankRelated, refKey, versesIn, DEFAULT_TRANSLATION } from '../../../../packages/scripture/src/index.ts';
 import { DEFAULT_TARGET_DAYS, LISTEN_MIN_SECONDS, XP, isDay, isXpKind, addDays, localDay, validTimeZone, xpAward, DAILY_XP_CAP, BADGES, type Session } from '../../../../packages/activity/src/index.ts';
 import type { Feature, Plan } from '../../../../packages/billing/src/plans.ts';
 import { config } from '../config.ts';
@@ -9,7 +9,7 @@ import { draftWell, phraseInsight, recommend, reflect, TAPESTRY_PROMPT_VERSION, 
 import { buildSummary, listenedDays } from './activity.ts';
 import { buildGuide } from './studyGuide.ts';
 import { buildDraft } from './sermon.ts';
-import { MAX_NARRATED_VERSES, NARRATION_TRANSLATIONS, minutesFor, narratePart, pickVoice, planNarration } from './narrate.ts';
+import { MAX_NARRATED_VERSES, NARRATION_TRANSLATIONS, minutesFor, narratePart, narrateSegments, pickVoice, planNarration } from './narrate.ts';
 import { engineFor } from '../tts/engines.ts';
 import { pcmToMp3 } from '../tts/ffmpeg.ts';
 import { renderGate } from '../tts/generate.ts';
@@ -128,12 +128,38 @@ export function tapestryRoutes({ limit, bad }: Deps): Record<string, Route> {
       const parts = planNarration(rows.map((r) => ({ n: r.verse, text: r.text })));
       const idx = Number(c.body.chunk ?? 0);
       if (!Number.isInteger(idx) || idx < 0 || idx >= parts.length) throw bad('That part does not exist.');
-      const voice = pickVoice(await engine.listVoices(), c.body.voice);
+      const dramatized = c.body.mode === 'dramatized';
+      if (dramatized) requireFeature(plan, 'dramatized_audio');
+      const voices = await engine.listVoices();
+      const voice = pickVoice(voices, c.body.voice);
       if (!voice) throw new HttpError(503, 'voice_unavailable', 'The natural voice has no voices available right now.');
       limit(`t-narr:${c.user.id}`, 240, 3600_000);
       await consume(c.user.id, plan, 'server_tts_minutes', minutesFor(parts[idx]), P); // counts against the same fair-use monthly voice allowance
-      const out = await renderGate.run(has(plan, 'priority_queue') ? 'high' : 'normal', () => narratePart({ engine, voice, toMp3: pcmToMp3 }, parts[idx]));
-      return { ref: key, translation, chunkIndex: idx, chunkCount: parts.length, durationMs: out.durationMs, verses: out.verses, voice, url: `data:audio/mpeg;base64,${out.mp3.toString('base64')}` };
+      const priority = has(plan, 'priority_queue') ? 'high' : 'normal';
+      let out;
+      if (dramatized) {
+        // Work out who speaks over the WHOLE passage first, so a quote that runs across parts keeps its voice, then read this part's stretches.
+        const inPart = new Set(parts[idx].map((v) => v.n));
+        const segs = segmentVerses(rows.map((r) => ({ n: r.verse, text: r.text }))).filter((s) => inPart.has(s.verse));
+        out = await renderGate.run(priority, () => narrateSegments({ engine, cast: pickCast(voices, voice), toMp3: pcmToMp3 }, segs));
+      } else out = await renderGate.run(priority, () => narratePart({ engine, voice, toMp3: pcmToMp3 }, parts[idx]));
+      return { ref: key, translation, mode: dramatized ? 'dramatized' : 'single', note: dramatized ? DRAMATIZED_NOTE : undefined, chunkIndex: idx, chunkCount: parts.length, durationMs: out.durationMs, verses: out.verses, voice, url: `data:audio/mpeg;base64,${out.mp3.toString('base64')}` };
+    } },
+
+    // Pro: the Hebrew or Greek words behind a passage, word by word (STEPBible-Data, CC BY 4.0).
+    'GET /v1/tapestry/original': { auth: true, run: async (c) => {
+      requireFeature(await c.plan(), 'interlinear');
+      const key = chosenRefs([String(c.query.get('ref') ?? '')])[0];
+      const chapter = key ? versesIn(key) === 'chapter' : false;
+      const keys = key && !chapter ? verseKeys(key) : null;
+      if (!key || (!chapter && !keys)) throw bad('Choose a chapter, a verse, or up to 40 verses.');
+      limit(`t-orig:${c.user.id}`, 300, 3600_000);
+      let rows: Array<{ ref: string; lang: 'he' | 'gr'; words: unknown[] }>;
+      try { rows = await rest(`original_verses?${chapter ? `ref=like.${key}.*` : `ref=in.(${keys!.join(',')})`}&select=ref,lang,words&limit=400`); }
+      catch { throw new HttpError(503, 'original_unavailable', 'The Hebrew and Greek word data has not been set up on this server yet.'); }
+      const num = (r: string) => Number(r.split('.').pop());
+      const sorted = rows.sort((a, b) => num(a.ref) - num(b.ref));
+      return { ref: key, credit: STEP_CREDIT, truncated: sorted.length > 60, verses: sorted.slice(0, 60).map((r) => ({ n: num(r.ref), lang: r.lang, words: r.words })) };
     } },
 
     'POST /v1/tapestry/well-draft': { auth: true, run: async (c) => {

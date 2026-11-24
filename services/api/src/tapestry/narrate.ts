@@ -1,6 +1,7 @@
 import { stitch } from '../tts/pcm.ts';
 import { mapPool } from '../tts/render.ts';
 import type { TtsEngine, Voice } from '../tts/types.ts';
+import type { Cast, Segment } from '../../../../packages/scripture/src/index.ts';
 
 /**
  * Natural voice narration of Scripture (Tapestry Plus). Owner-approved design: the audio is made on request and sent straight back,
@@ -40,4 +41,19 @@ export async function narratePart(deps: { engine: TtsEngine; voice: string; toMp
   if (clips.some((c) => c.sampleRate !== rate)) throw new Error('The voice engine returned mixed sample rates.');
   const s = stitch(clips.map((c, i) => ({ samples: c.samples, pauseAfterMs: i === clips.length - 1 ? 0 : VERSE_PAUSE_MS })), rate);
   return { mp3: await deps.toMp3(s.samples, rate), durationMs: s.durationMs, verses: verses.map((v, i) => ({ n: v.n, startMs: s.startMs[i] })) };
+}
+
+export const SEGMENT_PAUSE_MS = 170;
+/**
+ * A dramatized part: each stretch is read by the voice for its role (narrator, God and Jesus, or other speakers). The text is exactly what
+ * segmentVerses() was given; this only chooses the voice and the pauses.
+ */
+export async function narrateSegments(deps: { engine: TtsEngine; cast: Cast; toMp3: (samples: Int16Array, rate: number) => Promise<Buffer> }, segments: readonly Segment[]): Promise<NarratedPart> {
+  const clips = await mapPool([...segments], 2, (s) => deps.engine.synthesize(s.text, deps.cast[s.role]));
+  const rate = clips[0]?.sampleRate ?? 24000;
+  if (clips.some((c) => c.sampleRate !== rate)) throw new Error('The voice engine returned mixed sample rates.');
+  const s = stitch(clips.map((c, i) => ({ samples: c.samples, pauseAfterMs: i === clips.length - 1 ? 0 : segments[i + 1].verse !== segments[i].verse ? VERSE_PAUSE_MS : SEGMENT_PAUSE_MS })), rate);
+  const verses: Array<{ n: number; startMs: number }> = [];
+  segments.forEach((seg, i) => { if (!verses.some((v) => v.n === seg.verse)) verses.push({ n: seg.verse, startMs: s.startMs[i] }); });
+  return { mp3: await deps.toMp3(s.samples, rate), durationMs: s.durationMs, verses };
 }

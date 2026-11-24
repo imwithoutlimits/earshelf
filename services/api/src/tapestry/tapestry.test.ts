@@ -132,3 +132,19 @@ test('a part is spoken verse by verse and stitched with a pause; each verse know
   const bad = { ...engine, synthesize: async (t: string) => ({ samples: new Int16Array(10), sampleRate: t.startsWith('v1') ? 24000 : 22050 }) };
   await assert.rejects(narratePart({ engine: bad, voice: 'x', toMp3: async () => Buffer.alloc(0) }, [V(1, 5), V(2, 5)]), /mixed sample rates/);
 });
+
+import { narrateSegments } from './narrate.ts';
+import { segmentVerses } from '../../../../packages/scripture/src/index.ts';
+
+test('a dramatized part is read by the right voice for each stretch, with every verse timed', async () => {
+  const heard: Array<[string, string]> = [];
+  const engine = { id: 'kokoro', label: 'K', commercialUseAllowed: true, available: () => true, listVoices: async () => [], synthesize: async (t: string, voice: string) => { heard.push([voice, t]); return { samples: new Int16Array(2400), sampleRate: 24000 }; } };
+  const segs = segmentVerses([{ n: 3, text: 'God said, “Let there be light,” and there was light.' }, { n: 4, text: 'God saw the light, that it was good.' }]);
+  const out = await narrateSegments({ engine, cast: { narrator: 'nar', divine: 'div', speaker: 'spk' }, toMp3: async (s) => Buffer.from(`mp3:${s.length}`) }, segs);
+  assert.deepEqual(heard.map((h) => h[0]), ['nar', 'div', 'nar', 'nar']);
+  assert.deepEqual(heard.map((h) => h[1]).join(' '), 'God said, Let there be light, and there was light. God saw the light, that it was good.');
+  assert.deepEqual(out.verses.map((v) => v.n), [3, 4], 'one start time per verse, at its first stretch');
+  assert.equal(out.verses[0].startMs, 0);
+  assert.ok(out.verses[1].startMs > 3 * 100, 'verse 4 starts after verse 3 has been read');
+  assert.equal(out.durationMs, 4 * 100 + 2 * 170 + 380, 'short pauses inside a verse, a longer one between verses, none at the end');
+});
