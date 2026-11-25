@@ -70,3 +70,28 @@ export function ShareWellSheet({ well, onClose }: { well: WellView; onClose: () 
     </Sheet>
   );
 }
+
+const KIND_LABEL: Record<string, string> = { partner: 'Partner', family: 'Family', group: 'Small group' };
+/** The person's vaults, listed in Profile under Together so they are always in plain sight. Tapping one opens Together. */
+export function TogetherList({ refreshKey, onOpen }: { refreshKey: number; onOpen: () => void }) {
+  const user = useUser();
+  const [vaults, setVaults] = useState<Array<{ id: string; name: string; kind: string; memberCount: number }> | null>(null); const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!user) { setVaults([]); return; }
+    let live = true; setFailed(false);
+    api.apiGet<{ vaults: NonNullable<typeof vaults> }>('/v1/vaults?product=tapestry').then((r) => { if (live) setVaults(r.vaults); }).catch(() => { if (live) setFailed(true); });
+    return () => { live = false; };
+  }, [user?.user.id, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!user) return <p className="sm mut" style={{ marginTop: 8 }}>Sign in to create or join a vault.</p>;
+  if (failed) return <p className="sm mut" style={{ marginTop: 8 }}>Your vaults could not be loaded just now.</p>;
+  if (vaults === null) return <p className="sm mut" style={{ marginTop: 8 }}>Loading your vaults…</p>;
+  return (
+    <div style={{ marginTop: 8 }}>
+      {vaults.length === 0 ? <p className="sm mut">You are not in a vault yet.</p> : vaults.map((v) => (
+        <button key={v.id} type="button" className="item" onClick={onOpen} aria-label={`Open ${v.name}`}>
+          <div className="grow"><div className="well-name" style={{ fontSize: 19 }}>{v.name}</div><div className="sm mut">{KIND_LABEL[v.kind] ?? v.kind} · {v.memberCount} {v.memberCount === 1 ? 'person' : 'people'}</div></div>
+        </button>
+      ))}
+    </div>
+  );
+}

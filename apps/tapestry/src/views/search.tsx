@@ -7,11 +7,12 @@ import { useTranslation } from '../tr';
 import { Icon } from '../ui';
 import { useNav } from '../nav';
 
-interface Hit { key: string; link?: Link; reason?: string; note?: string }
-interface Result { kind: string; label: string; hits: Hit[]; wellName?: string; chapters?: { code: string; n: number } }
+export interface Hit { key: string; link?: Link; reason?: string; note?: string }
+export interface Result { kind: string; label: string; hits: Hit[]; wellName?: string; chapters?: { code: string; n: number } }
 const TRY = ['Scriptures for when I feel worried', 'Passages about trusting God in uncertainty', 'Verses for strength during hard times'];
 
-async function run(q: string): Promise<Result> {
+/** The same search the Search screen uses; the add-a-passage sheet inside a well reuses it. */
+export async function run(q: string): Promise<Result> {
   const c = classifyQuery(q);
   if (c.kind === 'book') { const b = BOOKS.find((x) => x.name.toLowerCase() === c.text.toLowerCase() || x.code.toLowerCase() === c.text.toLowerCase()) ?? BOOKS.find((x) => x.name.toLowerCase().startsWith(c.text.toLowerCase())); return { kind: 'book', label: b ? `${b.name} has ${b.chapters} chapters` : '', hits: [], chapters: b ? { code: b.code, n: b.chapters } : undefined }; }
   if (c.kind === 'phrase') {
@@ -30,13 +31,18 @@ async function run(q: string): Promise<Result> {
 export function Search() {
   const tr = useTranslation(); const nav = useNav(); const [q, setQ] = useState(''); const [res, setRes] = useState<Result | null>(null); const [busy, setBusy] = useState(false); const [recent, setRecent] = useState<string[]>([]); const [texts, setTexts] = useState<Record<string, Passage | null>>({}); const ref = useRef<HTMLInputElement>(null);
   useEffect(() => { void getSetting<string[]>('recent', []).then(setRecent); ref.current?.focus(); }, []);
-  useEffect(() => { void (async () => { const m: Record<string, Passage | null> = {}; for (const h of (res?.hits ?? []).slice(0, 10)) m[h.key] = await loadPassage(h.key); setTexts(m); })(); }, [res]);
+  // Every result gets its text (before, only the first ten did and the rest said the passage had not been downloaded). They fill in one by one, nearest first.
+  useEffect(() => {
+    let live = true; setTexts({});
+    void (async () => { for (const h of res?.hits ?? []) { const p = await loadPassage(h.key).catch(() => null); if (!live) return; setTexts((cur) => ({ ...cur, [h.key]: p })); } })();
+    return () => { live = false; };
+  }, [res]);
   const submit = async (text = q) => {
     const t = text.trim(); if (t.length < 2) return; setQ(t); setBusy(true);
     const c = classifyQuery(t); if (c.kind === 'reference' && c.ref) { await setSetting('recent', [t, ...recent.filter((x) => x !== t)].slice(0, 6)); nav.go({ t: 'passage', key: refKey(c.ref) }); setBusy(false); return; }
     const r = await run(t); setRes(r); setBusy(false); const next = [t, ...recent.filter((x) => x !== t)].slice(0, 6); setRecent(next); await setSetting('recent', next);
   };
-  const snippet = (k: string) => { const p = texts[k]; return p ? (p.text.length > 150 ? `${p.text.slice(0, 147).replace(/\s+\S*$/, '')}…` : p.text) : 'Text loads once this passage has been downloaded.'; };
+  const snippet = (k: string) => { if (!(k in texts)) return 'Loading…'; const p = texts[k]; return p ? (p.text.length > 150 ? `${p.text.slice(0, 147).replace(/\s+\S*$/, '')}…` : p.text) : 'Connect to the internet once and this passage will be saved to this device.'; };
   return (
     <div className="stack" style={{ height: '100%' }}>
       <div className="row" style={{ padding: 'max(16px,env(safe-area-inset-top)) 24px 0' }}>

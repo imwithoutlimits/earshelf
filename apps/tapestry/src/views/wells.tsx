@@ -13,6 +13,7 @@ import { player, usePlayer } from '../audio';
 import { Icon, PlayGlyph } from '../ui';
 import { useNav } from '../nav';
 import { queueFor } from './home';
+import { AddPassageSheet } from './addPassage';
 
 function MiniStars({ n, done }: { n: number; done: number }) {
   const k = Math.max(2, Math.min(n, 9)); const pts = Array.from({ length: k }, (_, i) => [4 + (i * 56) / (k - 1), 8 + ((i * 17 + 7) % 5) * 5]);
@@ -59,7 +60,7 @@ function DraftSheet({ onClose }: { onClose: () => void }) {
   );
 }
 export function WellDetail({ id }: { id: string }) {
-  const nav = useNav(); const pl = usePlayer(); const [w, setW] = useState<WellView | null>(null); const [guide, setGuide] = useState(false); const [share, setShare] = useState(false);
+  const nav = useNav(); const pl = usePlayer(); const [w, setW] = useState<WellView | null>(null); const [guide, setGuide] = useState(false); const [share, setShare] = useState(false); const [add, setAdd] = useState(false);
   const stamp = useLiveQuery(() => db.items.where('wellId').equals(id).toArray(), [id], []);
   useEffect(() => { void wellView(id).then(setW); }, [id, stamp]);
   if (!w) return <div className="screen"><button className="icon-btn plain" aria-label="Back" onClick={nav.back}><Icon n="left" /></button><p className="mut">This well was not found.</p></div>;
@@ -75,11 +76,15 @@ export function WellDetail({ id }: { id: string }) {
         {w.items.length > 0 && <button className="btn big" onClick={() => setShare(true)}>Share to a vault</button>}
         {w.starter && <button className="btn big" onClick={async () => { const n = await copyStarter(id); if (n) { nav.toast('Saved to your wells'); nav.go({ t: 'well', id: n }); } }}>Save as my well</button>}
       </div>
+      {!w.starter && <div className="row" style={{ marginTop: 14 }}><button className="btn" onClick={() => setAdd(true)}><Icon n="plus" s={20} />Add a passage</button></div>}
+      {!w.starter && w.items.length === 0 && <p className="mut" style={{ marginTop: 12 }}>This well is empty. Add your first passage, or save one from search.</p>}
+      {w.starter && <p className="sm mut" style={{ marginTop: 12 }}>This is a starter well. Tap “Save as my well” to make your own copy, where you can add, remove and reorder passages.</p>}
       <div style={{ marginTop: 16 }}>{w.items.map((it, i) => { const r = parseRefKey(it.key); return (
         <div key={it.key} className="item" style={{ alignItems: 'flex-start' }}>
           <button style={{ all: 'unset', cursor: 'pointer', flex: 1, display: 'flex', gap: 14 }} onClick={() => nav.go({ t: 'passage', key: it.key, wellId: id })}><span className="no" style={{ fontWeight: 700, color: 'var(--mut)', width: 28 }}>{String(i + 1).padStart(2, '0')}</span><span><span className="t">{r ? formatReference(r) : it.key}</span>{it.link && <span className="sm tx" style={{ display: 'block' }}>{LINK_LABEL[it.link as keyof typeof LINK_LABEL]}</span>}{it.note && <span className="sm mut" style={{ display: 'block' }}>{it.note}</span>}</span></button>
           {!w.starter && it.id && <span className="row" style={{ gap: 0 }}><button className="icon-btn plain" aria-label="Move up" disabled={i === 0} onClick={() => void moveItem(id, it.id!, -1)}><Icon n="up" s={20} /></button><button className="icon-btn plain" aria-label="Move down" disabled={i === w.items.length - 1} onClick={() => void moveItem(id, it.id!, 1)}><Icon n="down" s={20} /></button><button className="icon-btn plain" aria-label={`Remove ${r ? formatReference(r) : ''}`} onClick={() => void removeItem(it.id!)}><Icon n="x" s={20} /></button></span>}
         </div>); })}</div>
+      {add && <AddPassageSheet wellId={id} wellName={w.name} have={w.items.map((i) => i.key)} onClose={() => setAdd(false)} />}
       {guide && <GuideSheet well={w} onClose={() => setGuide(false)} />}
       {share && <ShareWellSheet well={w} onClose={() => setShare(false)} />}
     </div>
@@ -196,7 +201,8 @@ export function SaveSheet({ keys, onClose }: { keys: string[]; onClose: () => vo
   return (
     <Sheet label="Save to a well" onClose={onClose}>
       <h2>Save to a well</h2>
-      {mine.map((w) => <button key={w.id} className="item" onClick={async () => { let n = 0; for (const k of keys) if (await addToWell(w.id, k)) n++; onClose(); nav.toast(n ? `Saved to ${w.name}` : `Already in ${w.name}`); }}><span className="well-name grow">{w.name}</span></button>)}
+      {mine.length === 0 && <p className="mut">You have no wells yet. Name one below and the passage goes straight into it.</p>}
+      {mine.map((w) => <button key={w.id} type="button" className="item" aria-label={`Save to ${w.name}`} onClick={async () => { try { let n = 0; for (const k of keys) if (await addToWell(w.id, k)) n++; onClose(); nav.toast(n ? `Saved to ${w.name}` : `Already in ${w.name}`); } catch { nav.toast('Could not save. Try again.'); } }}><span className="well-name grow">{w.name}</span><Icon n="plus" s={22} /></button>)}
       <label className="field">New well<input className="text-input" placeholder="Name your well" value={name} onChange={(e) => setName(e.target.value)} /></label>
       <button className="btn primary big" disabled={!name.trim()} onClick={async () => { await createWell(name, '', keys); onClose(); nav.toast(`Saved to ${name.trim()}`); }}>Create and save</button>
     </Sheet>

@@ -6,7 +6,7 @@ import { hasFeature } from '@wells/billing/src/plans.ts';
 import { Sheet, openPlans } from '@wells/ui';
 import { uid } from '@wells/offline';
 import { api, supabase } from '../api';
-import { NaturalListen } from './narrate';
+import { VoiceLine } from './narrate';
 import { db } from '../db';
 import { loadPassage, loadChapter, enabledTranslations, infoOf, type Passage } from '../data';
 import { useTranslation } from '../tr';
@@ -34,7 +34,7 @@ export function PassageView({ k, wellId }: { k: string; wellId?: string }) {
       {p && <p className="read" style={{ marginTop: 16 }}>{p.verses.map((v) => <span key={v.n}>{p.verses.length > 1 && <sup>{v.n}</sup>}{v.text} </span>)}</p>}
       <div className="row" style={{ marginTop: 16, flexWrap: 'wrap' }}>
         {p && <button className="btn primary" onClick={() => { player.setMode({ silence: false }); player.play([{ key: k, title: p.title, text: p.text }]); nav.go({ t: 'player' }); }}><PlayGlyph />Listen</button>}
-        <button className="btn" aria-pressed={!!marked} onClick={async () => { if (marked) await db.bookmarks.where('ref').equals(k).delete(); else { await db.bookmarks.add({ id: uid(), ref: k, createdAt: Date.now() }); await award('save_passage', k); nav.toast('Bookmarked'); } }}><Icon n="mark" s={20} />{marked ? 'Bookmarked' : 'Bookmark'}</button>
+        <button className="btn" aria-pressed={!!marked} aria-label={marked ? 'Remove bookmark' : 'Bookmark'} onClick={async () => { if (marked) await db.bookmarks.where('ref').equals(k).delete(); else { await db.bookmarks.add({ id: uid(), ref: k, createdAt: Date.now() }); await award('save_passage', k); } }} style={marked ? { color: 'var(--acc)', borderColor: 'var(--acc)' } : undefined}><Icon n="mark" s={20} fill={!!marked} />Bookmark</button>
         <button className="btn" onClick={() => nav.save([k])}><Icon n="plus" s={20} />Add to well</button>
         {p && <button className="btn" onClick={() => nav.go({ t: 'memorize', key: k })}>Memorize</button>}
         <button className="btn" onClick={async () => setCtx(ctx ? null : await loadChapter(k))}>{ctx ? 'Hide context' : 'Context'}</button>
@@ -42,7 +42,7 @@ export function PassageView({ k, wellId }: { k: string; wellId?: string }) {
         <button className="btn" onClick={() => setRelated(true)}>Related</button>
         <button className="btn" onClick={() => setOrig(true)}>Original</button>
       </div>
-      <NaturalListen k={k} />
+      <VoiceLine />
       {ctx && <div className="sec"><div className="label">Whole chapter · {ctx.title}</div><p className="read" style={{ fontSize: 18, marginTop: 6 }}>{ctx.verses.map((v) => <span key={v.n}><sup>{v.n}</sup>{v.text} </span>)}</p></div>}
       <div className="sec"><div className="row between"><span className="b">Reflect</span><span className="sm tx">{prompts?.label ?? 'Editorial prompt'}</span></div>{(prompts?.list ?? list).map((x) => <p key={x} className="serif" style={{ fontSize: 19, margin: '8px 0' }}>{x}</p>)}{supabase && api.apiUrl && <button className="btn" onClick={() => void ai()}>Suggest prompts with AI</button>}</div>
       <div className="sec"><div className="b">Notes</div>{notes.map((n) => <p key={n.id} className="serif" style={{ fontSize: 18, margin: '8px 0' }}>{n.body}</p>)}<textarea className="ta" aria-label="Write a note" placeholder="Write a note. It stays private." value={note} onChange={(e) => setNote(e.target.value)} /><button className="btn primary" style={{ marginTop: 8 }} disabled={!note.trim()} onClick={async () => { const now = Date.now(); await db.notes.add({ id: uid(), ref: k, body: note.trim(), createdAt: now, updatedAt: now }); setNote(''); await award('write_note', k); }}>Save note</button></div>
