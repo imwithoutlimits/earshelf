@@ -6,5 +6,8 @@ import './styles.css';
 import { ErrorBoundary } from '@wells/ui';
 import { App } from './App';
 import { reportError } from './monitor';
+import { installLockScreen } from './lockscreen';
+
+installLockScreen();
 
 createRoot(document.getElementById('root')!).render(<StrictMode><ErrorBoundary appName="tapestry" onError={(e, w, x) => reportError(e, w, x)}><App /></ErrorBoundary></StrictMode>);

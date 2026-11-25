@@ -51,6 +51,7 @@ export async function downloadBible(onProgress: (pct: number) => void, trId?: st
     onProgress(Math.min(1, (from + data.length) / 31102));
     if (data.length < 1000) break;
   }
+  onProgress(1);
   await setSetting(`downloaded:${tr}`, true);
 }
 /** Exact phrase search over every verse stored on this device. */
@@ -83,7 +84,8 @@ export async function createWell(name: string, description = '', keys: string[] 
 export const copyStarter = async (id: string): Promise<string | null> => { const w = STARTER_WELLS.find((x) => x.id === id); if (!w) return null; const n = await createWell(w.name, w.description, w.items.map((i) => i.ref), 'copy', w.id); await db.items.where('wellId').equals(n).modify((i) => { i.link = w.items[i.position]?.link; i.note = w.items[i.position]?.note; }); return n; };
 export async function addToWell(wellId: string, key: string): Promise<boolean> {
   const here = await db.items.where('wellId').equals(wellId).toArray(); if (here.some((i) => i.ref === key)) return false;
-  const elsewhere = (await db.items.where('ref').equals(key).count?.()) ?? 0;
+  // `ref` is not an index of the items table, so this is a filter. (A where('ref') here threw an error, and saving to a well silently did nothing.)
+  const elsewhere = await db.items.filter((i) => i.ref === key).count();
   await db.items.add({ id: uid(), wellId, ref: key, position: here.length, updatedAt: Date.now() }); await db.wells.update(wellId, { updatedAt: Date.now() });
   await award(elsewhere ? 'add_to_well' : 'save_passage', key); return true;
 }

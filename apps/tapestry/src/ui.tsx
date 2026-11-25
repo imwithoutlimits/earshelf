@@ -6,10 +6,12 @@ const P: Record<string, ReactNode> = {
   replay: <path d="M4 12a8 8 0 1 0 2.5-5.8M4 4v5h5" />, back: <><path d="M5 12a7 7 0 1 0 2-5M5 3v4h4" /><text x="12" y="15" fontSize="7" fontWeight="700" textAnchor="middle" fill="currentColor" stroke="none">15</text></>,
   fwd: <><path d="M19 12a7 7 0 1 1-2-5M19 3v4h-4" /><text x="12" y="15" fontSize="7" fontWeight="700" textAnchor="middle" fill="currentColor" stroke="none">30</text></>, next: <path d="M7 5v14l9-7zM19 5v14" />, prev: <path d="M17 5v14l-9-7zM5 5v14" />,
   Home: <path d="M4 11l8-7 8 7v9H4z" />, Wells: <path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z" />, Activity: <path d="M3 12h4l3-7 4 14 3-7h4" />, Profile: <><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 4-6 8-6s8 2 8 6" /></>,
+  repeat1: <><path d="M4 11V9a3 3 0 0 1 3-3h13M17 3l3 3-3 3M20 13v2a3 3 0 0 1-3 3H4M7 21l-3-3 3-3" /><text x="12" y="15.2" fontSize="8.5" fontWeight="800" textAnchor="middle" fill="currentColor" stroke="none">1</text></>,
   shuffle: <path d="M3 7h4l10 10h4M3 17h4l3-3M14 10l3-3h4M18 4l3 3-3 3M18 14l3 3-3 3" />, repeat: <path d="M4 11V9a3 3 0 0 1 3-3h13M17 3l3 3-3 3M20 13v2a3 3 0 0 1-3 3H4M7 21l-3-3 3-3" />, up: <path d="M6 15l6-6 6 6" />, trash: <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />,
 };
-export function Icon({ n, s = 24, w = 1.75 }: { n: string; s?: number; w?: number }) {
-  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{P[n]}</svg>;
+/** `fill` draws the shape solid: a bookmark that is on, a sleep timer that is running. */
+export function Icon({ n, s = 24, w = 1.75, fill = false }: { n: string; s?: number; w?: number; fill?: boolean }) {
+  return <svg width={s} height={s} viewBox="0 0 24 24" fill={fill ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{P[n]}</svg>;
 }
 export const PlayGlyph = ({ s = 20 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor" /></svg>;
 export const PauseGlyph = ({ s = 20 }: { s?: number }) => <svg width={s} height={s} viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" fill="currentColor" /><rect x="14" y="5" width="4" height="14" fill="currentColor" /></svg>;
