@@ -2,6 +2,7 @@ import type { Utterance } from '../../core/src/model.ts';
 import { PlaybackQueue, SleepTimer, type SleepSetting } from './queue.ts';
 import { AudioChunkEngine, SpeechEngine, type PlaybackEngine, type EngineEvent } from './engines.ts';
 import type { AudioChunk } from './tts.ts';
+import { Hum } from './lockscreen.ts';
 
 export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'error';
 
@@ -33,22 +34,6 @@ export interface TrackMeta {
   artwork?: Array<{ src: string; sizes?: string; type?: string }>;
 }
 
-/**
- * Ten seconds of a 25 Hz hum at about -50 dB, looped. Browsers keep a page alive and show playback controls only for media they count as audible,
- * and they treat exact silence (or a 1% volume of silence) as not playing at all. 25 Hz at this level cannot be heard on a phone or earphones.
- * Ten seconds because very short clips are not given a notification. 250 whole cycles, so the loop has no click.
- */
-const KEEP_ALIVE_WAV = (() => {
-  const rate = 8000, n = rate * 10, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
-  const s = (o: number, t: string) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  s(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); s(8, 'WAVE'); s(12, 'fmt ');
-  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-  s(36, 'data'); v.setUint32(40, n * 2, true);
-  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.round(100 * Math.sin((2 * Math.PI * 25 * i) / rate)), true);
-  return buf;
-})();
-
 export class PlayerController {
   private queue = new PlaybackQueue([]);
   private speech = new SpeechEngine();
@@ -56,7 +41,9 @@ export class PlayerController {
   private engine: PlaybackEngine = this.speech;
   private meta: TrackMeta | null = null;
   private listeners = new Set<() => void>();
-  private keepAlive: HTMLAudioElement | null = null;
+  /** The quiet hum under all playback (see lockscreen.ts). It keeps the lock screen card and the page alive through quiet moments. */
+  private hum = new Hum();
+  private beat: ReturnType<typeof setInterval> | null = null;
   private sleepTimer = new SleepTimer(() => this.pause());
   private lastSection = '';
   private progressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -71,6 +58,7 @@ export class PlayerController {
     this.snap = this.build({ status: 'idle', rate: 1, volume: 1, voiceId: null, error: null });
     this.wire(this.speech);
     this.installMediaSession();
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (this.snap.status === 'playing' || this.snap.status === 'loading')) this.syncMediaSession(); });
   }
 
   /** Fractional place in the document: the sentence number plus how far through that sentence it is. Read this every frame to animate. */
@@ -189,6 +177,7 @@ export class PlayerController {
     const i = this.queue.index;
     let notice: string | null = null;
     if (this.beforePlay) {
+      this.startKeepAlive(); // making the next part of a natural voice can take a while: stay audible meanwhile
       this.set({ status: 'loading', error: null });
       try { await this.beforePlay(i); }
       catch (e) { notice = `${e instanceof Error ? e.message : 'Natural voice is unavailable.'} Using the device voice for now.`; }
@@ -198,7 +187,7 @@ export class PlayerController {
     const next = this.pick(idx);
     if (next !== this.engine) { this.engine.stop(); this.engine = next; }
     this.applyEngineSettings(this.engine);
-    if (this.engine.kind === 'speech') this.startKeepAlive();
+    this.startKeepAlive();
     this.set({ status: 'playing', error: notice });
     this.engine.play(idx);
   }
@@ -238,15 +227,15 @@ export class PlayerController {
   sleepRemainingMs() { return this.sleepTimer.remainingMs(); }
 
   private startKeepAlive() {
-    if (typeof Audio === 'undefined') return;
-    if (!this.keepAlive) {
-      this.keepAlive = new Audio(URL.createObjectURL(new Blob([KEEP_ALIVE_WAV], { type: 'audio/wav' })));
-      this.keepAlive.loop = true;
-      this.keepAlive.setAttribute('aria-hidden', 'true');
-    }
-    void this.keepAlive.play().catch(() => {});
+    this.hum.start();
+    // Every few seconds while playing, say again that this is playing: some phones forget it after a quiet moment between two audio parts.
+    if (!this.beat) this.beat = setInterval(() => { if (this.snap.status === 'playing' || this.snap.status === 'loading') this.syncMediaSession(); }, 8000);
   }
-  private stopKeepAlive() { this.keepAlive?.pause(); }
+  private stopKeepAlive() {
+    this.hum.stop();
+    if (this.beat) clearInterval(this.beat);
+    this.beat = null;
+  }
 
   private installMediaSession() {
     if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;

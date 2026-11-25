@@ -9,13 +9,16 @@ import { downloadBible, enabledTranslations, infoOf } from '../data';
 import { useTranslation } from '../tr';
 import { Seg } from '../ui';
 import { openBillingPortal, usePlanDetails } from '../billing';
-import { TogetherSheet } from './together';
+import { TogetherList, TogetherSheet } from './together';
+import { ListeningSettings } from './listening';
 
 export function Profile({ theme, setTheme }: { theme: string; setTheme: (t: string) => void }) {
-  const user = useUser(); const tr = useTranslation(); const planInfo = usePlanDetails(); const [billNote, setBillNote] = useState(''); const [together, setTogether] = useState(false);
+  const user = useUser(); const tr = useTranslation(); const planInfo = usePlanDetails(); const [billNote, setBillNote] = useState(''); const [together, setTogether] = useState(false); const [togetherKey, setTogetherKey] = useState(0);
   const [signIn, setSignIn] = useState(false); const [pct, setPct] = useState<number | null>(null); const [msg, setMsg] = useState('');
   const [admin, setAdmin] = useState(false); const [setup, setSetup] = useState(''); const [avail, setAvail] = useState<string[]>(['engwebp']);
   useEffect(() => { void enabledTranslations().then(setAvail); }, [user]);
+  // Signing in is the end of that task: close the sign-in sheet by itself so the person lands back in the app.
+  useEffect(() => { if (user) setSignIn(false); }, [user]);
   useEffect(() => { if (user) void api.apiGet<{ admin: boolean }>('/v1/tapestry/capabilities').then((c) => setAdmin(c.admin)).catch(() => setAdmin(false)); }, [user]);
   const have = useLiveQuery(() => db.verses.filter((v) => v.tr === tr.id).count(), [tr.id], 0);
   const downloaded = useLiveQuery(() => getSetting(`downloaded:${tr.id}`, false), [tr.id], false);
@@ -28,8 +31,9 @@ export function Profile({ theme, setTheme }: { theme: string; setTheme: (t: stri
       <div className="sec"><div className="b" style={{ marginBottom: 10 }}>Plan</div>
         <PlanSummary product="tapestry" info={planInfo} signedIn={!!user} onSeePlans={openPlans} onManage={() => void openBillingPortal().catch((e) => setBillNote(e instanceof Error ? e.message : 'Could not open the billing page.'))} onSignIn={() => setSignIn(true)} />
         {billNote && <p role="alert" className="up-error sm" style={{ marginTop: 8 }}>{billNote}</p>}</div>
-      <div className="sec"><div className="b" style={{ marginBottom: 10 }}>Together</div><p className="mut sm">Share wells with a partner, your family or a small group.</p><button className="btn" style={{ marginTop: 8 }} onClick={() => setTogether(true)}>Partner, family and groups</button></div>
-      {together && <TogetherSheet onClose={() => setTogether(false)} />}
+      <div className="sec"><div className="b" style={{ marginBottom: 10 }}>Together</div><p className="mut sm">Share wells with a partner, your family or a small group.</p><TogetherList refreshKey={togetherKey} onOpen={() => setTogether(true)} /><button className="btn" style={{ marginTop: 8 }} onClick={() => setTogether(true)}>Create or join a vault</button></div>
+      {together && <TogetherSheet onClose={() => { setTogether(false); setTogetherKey((k) => k + 1); }} />}
+      <ListeningSettings onSignIn={() => setSignIn(true)} />
       <div className="sec"><div className="b" style={{ marginBottom: 10 }}>Appearance</div><Seg label="Theme" value={theme as 'dark'} onChange={setTheme} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark'], ['field', 'Colour']]} /></div>
       <div className="sec"><div className="b">Bible translation</div>
         <div className="pills" style={{ marginTop: 10 }} role="group" aria-label="Bible translation">{avail.map((id) => <button key={id} className="pill" aria-pressed={tr.id === id} onClick={() => void setSetting('translation', id)}>{infoOf(id).abbreviation}</button>)}</div>
@@ -37,7 +41,7 @@ export function Profile({ theme, setTheme }: { theme: string; setTheme: (t: stri
         <p className="sm mut" style={{ marginTop: 6 }}>{tr.notice}</p><p className="sm mut"><a href={tr.licenseUrl} style={{ color: 'var(--tx)' }}>Source and license</a></p>
         {avail.length < 2 && <p className="sm mut">More translations appear here once they have been loaded for this app.</p>}</div>
       <div className="sec"><div className="b">Offline</div><p className="mut">{have.toLocaleString()} verses of {tr.abbreviation} are stored on this device{downloaded ? ' (the whole Bible)' : ''}. Passages you read are kept automatically.</p>
-        <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>{supabase && <button className="btn" disabled={pct !== null} onClick={async () => { setMsg(''); setPct(0); try { await downloadBible(setPct); setMsg(`Done. The whole ${tr.abbreviation} is on this device.`); } catch (e) { setMsg(e instanceof Error ? e.message : 'Download failed. Check your connection and try again.'); } setPct(null); }}>{pct === null ? `Download the whole ${tr.abbreviation}` : `Downloading ${Math.round(pct * 100)}%`}</button>}
+        <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>{supabase && <button className="btn" disabled={pct !== null || !!downloaded} onClick={async () => { setMsg(''); setPct(0); try { await downloadBible(setPct); setMsg(`Done. The whole ${tr.abbreviation} is on this device.`); } catch (e) { setMsg(e instanceof Error ? e.message : 'Download failed. Check your connection and try again.'); } setPct(null); }}>{pct !== null ? `Downloading ${Math.round(pct * 100)}%` : downloaded ? <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>{tr.abbreviation} downloaded</> : `Download the whole ${tr.abbreviation}`}</button>}
           <button className="btn" onClick={async () => { if (confirm('Remove downloaded Scripture from this device? Your wells and notes are kept.')) { await db.verses.clear(); for (const t of TRANSLATIONS) await setSetting(`downloaded:${t.id}`, false); setMsg('Offline Scripture removed.'); } }}>Remove offline data</button></div>{msg && <p role="status" className="sm mut" style={{ marginTop: 8 }}>{msg}</p>}</div>
       <div className="sec"><div className="b">Reminders</div><p className="mut">Daily reminders and scheduled listening are part of Plus and arrive in the next update.</p></div>
       {admin && <div className="sec"><div className="b">Owner setup</div><p className="mut">Loads the 16 starter wells and the Bible text (World English Bible) into your database. Takes a few minutes. Safe to run again.</p><button className="btn primary" style={{ marginTop: 8 }} disabled={setup === 'running'} onClick={async () => { setSetup('running'); try { const r = await api.apiPost<{ seeded: { wells: number; passages: number }; imported: Array<{ translation: string; verses?: number; starterProblems?: string[]; error?: string }> }>('/v1/tapestry/admin/setup', { enable: true }); const ok = r.imported.filter((x) => x.verses); const bad = r.imported.filter((x) => x.error); setSetup(`Loaded ${r.seeded.wells} wells and ${ok.length} translation(s) (${ok.reduce((n, x) => n + (x.verses ?? 0), 0).toLocaleString()} verses).${bad.length ? ` Problems: ${bad.map((x) => `${x.translation}: ${x.error}`).join('; ')}` : ' Every translation loaded.'}`); } catch (e) { setSetup(e instanceof Error ? e.message : 'Setup failed.'); } }}>{setup === 'running' ? 'Loading…' : 'Load starter wells and Scripture'}</button>{setup && setup !== 'running' && <p role="status" className="sm mut" style={{ marginTop: 8 }}>{setup}</p>}</div>}

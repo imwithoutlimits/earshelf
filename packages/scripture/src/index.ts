@@ -16,3 +16,4 @@ export * from './sermon.ts';
 export * from './crossrefs.ts';
 export * from './original.ts';
 export * from './dramatize.ts';
+export * from './narrationSync.ts';

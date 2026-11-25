@@ -113,9 +113,10 @@ export function tapestryRoutes({ limit, bad }: Deps): Record<string, Route> {
       return { ref: key, credit: CROSSREF_CREDIT, items: rankRelated(rows, key, 25).map((r) => { const p = parseRefKey(r.ref); return { ref: r.ref, label: p ? formatReference(p) : r.ref, votes: r.votes }; }) };
     } },
 
-    // Plus: a part of a passage read aloud with the natural Kokoro voice. Made on request and sent straight back, never saved. Public domain translations only.
+    // A part of a passage read aloud with the natural Kokoro voice. Made on request and sent straight back, never saved. Public domain translations only.
+    // Everyone with an account can use it: Plus and Pro from a large monthly allowance, Free from a small daily one (the same Kokoro allowance as Earshelf's preview).
     'POST /v1/tapestry/narrate': { auth: true, run: async (c) => {
-      const plan = await c.plan(); requireFeature(plan, 'natural_tts');
+      const plan = await c.plan(); const full = has(plan, 'natural_tts');
       const translation = String(c.body.translation ?? DEFAULT_TRANSLATION);
       if (!NARRATION_TRANSLATIONS.includes(translation)) throw new HttpError(403, 'not_narratable', 'Natural voice reading is only available for the World English Bible, King James Version and American Standard Version.');
       const key = chosenRefs([String(c.body.ref ?? '')])[0]; const ref = key ? parseRefKey(key) : null;
@@ -134,7 +135,8 @@ export function tapestryRoutes({ limit, bad }: Deps): Record<string, Route> {
       const voice = pickVoice(voices, c.body.voice);
       if (!voice) throw new HttpError(503, 'voice_unavailable', 'The natural voice has no voices available right now.');
       limit(`t-narr:${c.user.id}`, 240, 3600_000);
-      await consume(c.user.id, plan, 'server_tts_minutes', minutesFor(parts[idx]), P); // counts against the same fair-use monthly voice allowance
+      // Plus and Pro count against the fair-use monthly voice allowance; Free counts against its daily Kokoro allowance, and when that is used up the app carries on in the phone's own voice.
+      await consume(c.user.id, plan, full ? 'server_tts_minutes' : 'kokoro_preview_minutes', minutesFor(parts[idx]), P);
       const priority = has(plan, 'priority_queue') ? 'high' : 'normal';
       let out;
       if (dramatized) {
