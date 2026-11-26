@@ -38,7 +38,7 @@ export interface RemoteDayRecord { day: string; seconds: number }
 export interface PronRecord { id: string; term: string; say: string; docId?: string }
 /** Pending changes to push to Supabase once sync is wired. Local writes never wait on the network. */
 export interface OutboxRecord { id?: number; table: string; recordId: string; op: 'put' | 'delete'; createdAt: number }
-export interface SettingRecord { key: string; value: unknown }
+export interface SettingRecord { key: string; value: unknown; /** When it was last changed, so synced settings can be merged by time. */ updatedAt?: number }
 /** A flashcard scheduled for spaced review. */
 export interface CardRecord { id: string; docId?: string; front: string; back: string; blockId?: string; ease: number; intervalDays: number; reps: number; lapses: number; dueAt: number; createdAt: number; updatedAt: number; deletedAt?: number }
 /** A generated audio chunk kept on the device for offline listening. */
@@ -88,7 +88,7 @@ export async function getSetting<T>(key: string, fallback: T): Promise<T> {
   const r = await db.settings.get(key);
   return (r ? (r.value as T) : fallback);
 }
-export async function setSetting(key: string, value: unknown) { await db.settings.put({ key, value }); }
+export async function setSetting(key: string, value: unknown) { await db.settings.put({ key, value, updatedAt: Date.now() }); }
 
 export const DEFAULT_WELLS: Array<{ name: string; rule?: SmartRule }> = [
   { name: 'To listen' },
