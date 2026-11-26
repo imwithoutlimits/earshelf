@@ -5,6 +5,8 @@ import { apiBlob, ApiError } from '../supabase';
 import { useUser } from '../auth';
 import { UpgradeNote } from './UpgradeNote';
 import { addToPodcast } from './PodcastCard';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 import { usePlan, useSetting } from '../hooks';
 import { downloadDocumentAudio, downloadStats, exportStatus, removeDownloads, startAudioExport, useCapabilities, useVoices as useServerVoices, type ExportStatus } from '../serverVoice';
 
@@ -12,6 +14,8 @@ export function NaturalVoice({ docId }: { docId?: string }) {
   const user = useUser();
   const plan = usePlan();
   const caps = useCapabilities(!!user);
+  // The plan is read from the device after sign-in. Until it is there it looks like Free, and the engine choice must not be reset because of that (the choice is synced to every device).
+  const planKnown = useLiveQuery(() => db.settings.get('plan'), [], undefined) !== undefined;
   const [on, setOn] = useSetting('useServerVoice', false);
   const [provider, setProvider] = useSetting('ttsProvider', '');
   const [voice, setVoice] = useSetting('ttsVoice', '');
@@ -25,10 +29,10 @@ export function NaturalVoice({ docId }: { docId?: string }) {
   const audio = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    if (!caps || !caps.engines.length) return;
+    if (!caps || !caps.engines.length || !planKnown) return;
     const allowed = hasFeature(plan, 'natural_tts') ? caps.engines : caps.engines.filter((e) => e.id === 'kokoro');
     if (allowed.length && !allowed.some((e) => e.id === provider)) setProvider(allowed[0].id);
-  }, [caps, plan, provider, setProvider]);
+  }, [caps, plan, planKnown, provider, setProvider]);
   useEffect(() => { if (voices.length && !voices.some((v) => v.id === voice)) setVoice(voices[0].id); }, [voices, voice, setVoice]);
   useEffect(() => { if (dialogueVoice && voices.length && !voices.some((v) => v.id === dialogueVoice)) setDialogueVoice(''); }, [voices, dialogueVoice, setDialogueVoice]);
   useEffect(() => { if (docId) void downloadStats(docId).then(setStats); }, [docId, busy]);
