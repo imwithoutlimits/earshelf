@@ -11,11 +11,18 @@ import { uid } from '@wells/offline';
 import { award } from '../activity';
 import { AmbientControls } from './ambient';
 
+/** True only once `flag` has stayed on for `ms`. A voice that is ready in a moment never shows a "getting ready" message at all. */
+function useAfter(flag: boolean, ms: number): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => { if (!flag) { setOn(false); return; } const t = setTimeout(() => setOn(true), ms); return () => clearTimeout(t); }, [flag, ms]);
+  return on;
+}
+
 export function MiniPlayer({ onOpen }: { onOpen: () => void }) {
-  const p = usePlayer(); const it = p.queue[p.index]; if (!it) return null;
+  const p = usePlayer(); const it = p.queue[p.index]; const slow = useAfter(p.loading, 1200); if (!it) return null;
   return (
     <div className="mini"><button className="play" aria-label={p.playing ? 'Pause' : 'Play'} onClick={() => player.toggle()}>{p.playing ? <PauseGlyph /> : <PlayGlyph />}</button>
-      <button className="grow" style={{ all: 'unset', cursor: 'pointer', flex: 1, minWidth: 0 }} onClick={onOpen} aria-label="Open player"><div className="b" style={{ fontSize: 15 }}>{it.title}</div><div className="sm mut">{p.loading ? 'Getting the voice ready…' : <>{it.wellName ? `${it.wellName} · ` : ''}{(p.queue[0]?.index ?? 0) + p.index + 1} of {(p.queue[0]?.index ?? 0) + p.queue.length}</>}</div></button></div>
+      <button className="grow" style={{ all: 'unset', cursor: 'pointer', flex: 1, minWidth: 0 }} onClick={onOpen} aria-label="Open player"><div className="b" style={{ fontSize: 15 }}>{it.title}</div><div className="sm mut">{slow ? 'Getting the voice ready…' : <>{it.wellName ? `${it.wellName} · ` : ''}{(p.queue[0]?.index ?? 0) + p.index + 1} of {(p.queue[0]?.index ?? 0) + p.queue.length}</>}</div></button></div>
   );
 }
 
@@ -36,7 +43,7 @@ function SleepSheet({ onClose, current }: { onClose: () => void; current: number
 export function PlayerView() {
   const tr = useTranslation(); const nav = useNav(); const p = usePlayer(); const it = p.queue[p.index];
   const marked = useLiveQuery(() => (it ? db.bookmarks.where('ref').equals(it.key).count() : Promise.resolve(0)), [it?.key], 0);
-  const [sleepOpen, setSleepOpen] = useState(false); const mark = useRef<HTMLElement>(null);
+  const [sleepOpen, setSleepOpen] = useState(false); const mark = useRef<HTMLElement>(null); const slow = useAfter(p.loading, 1200);
   const cut = p.charPos;
   useEffect(() => { if (p.playing) mark.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [cut, p.playing]);
   if (!it) return <div className="screen"><button className="icon-btn plain" aria-label="Close player" onClick={nav.back}><Icon n="down" s={28} /></button><p className="mut">Nothing is playing. Choose a well or a passage to listen.</p></div>;
@@ -56,7 +63,7 @@ export function PlayerView() {
       <div className="row between"><button className="icon-btn plain" aria-label="Close player" onClick={nav.back} style={{ marginLeft: -10 }}><Icon n="down" s={28} /></button><div style={{ textAlign: 'center' }}><div className="label" style={{ fontSize: 12 }}>Playing from</div><div className="b" style={{ fontSize: 15 }}>{it.wellName ?? 'Single passage'}</div></div><div style={{ width: 34 }} /></div>
       <div><div className="serif" style={{ fontSize: 34, fontWeight: 500, lineHeight: 1.1 }}>{it.title}</div><div className="sm mut" style={{ marginTop: 4 }}>{tr.name} · passage {off + p.index + 1} of {off + p.queue.length}{p.engine === 'natural' && !p.loading ? ' · natural voice' : ''}{p.silence ? ' · scripture, then silence' : ''}</div></div>
       <div role="slider" aria-label="Playback position" aria-valuemin={0} aria-valuemax={Math.round(p.total)} aria-valuenow={Math.round(p.elapsed)} style={{ marginTop: 6 }}><LiveWave text={it.text} /></div>
-      <div className="row between sm mut" style={{ marginTop: -6 }}><span>{fmt(p.elapsed)}</span><span>{p.loading ? 'Getting the voice ready…' : p.waiting ? 'Silence…' : `−${fmt(Math.max(0, p.total - p.elapsed))}`}</span></div>
+      <div className="row between sm mut" style={{ marginTop: -6 }}><span>{fmt(p.elapsed)}</span><span>{slow ? 'Getting the voice ready…' : p.waiting ? 'Silence…' : `−${fmt(Math.max(0, p.total - p.elapsed))}`}</span></div>
       <p className="read" style={{ margin: '4px 0 0' }} aria-live="off"><span className="said">{before}</span>{word && <mark ref={mark}>{word}</mark>}<span className="mut">{rest}</span></p>
       {p.note && <p className="sm mut" role="status">{p.note}</p>}
       {p.voiceless && <p className="sm mut" role="status">No voice is available in this browser, so the page follows along silently. On a phone or a desktop browser with voices installed it will read aloud.</p>}

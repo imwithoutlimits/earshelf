@@ -5,7 +5,7 @@ import { syncListening } from './activitySync';
 import { reportError } from './monitor';
 import { supabase } from './supabase';
 import type { Plan } from '@wells/billing/src/plans.ts';
-import { coalesceOutbox, makePullTable, makeStatusStore } from '@wells/offline';
+import { coalesceOutbox, makePullTable, makeStatusStore, mergePrefsForPush, prefsToApply, type LocalPref } from '@wells/offline';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -123,10 +123,18 @@ async function pushBatch(table: string, items: Array<{ recordId: string; op: 'pu
     const rows = (await db.pron.bulkGet(ids)).map((p, i) => (p && !del.has(ids[i]) ? { id: p.id, user_id: uid, document_id: p.docId ?? null, term: p.term, say: p.say, deleted_at: null } : { id: ids[i], user_id: uid, term: '(deleted)', say: '', deleted_at: now }));
     must(await supabase.from('document_pronunciations').upsert(rows));
   } else if (table === 'user_preferences') {
-    const prefs: Row = {};
-    for (const k of SYNCED_SETTINGS) { const r = await db.settings.get(k); if (r) prefs[k] = r.value; }
+    // Lay this device's settings over the cloud copy only where they are newer (see packages/offline/src/prefs.ts), so a device that missed a change cannot undo it.
+    const cloud = await supabase.from('user_preferences').select('prefs').eq('user_id', uid).eq('product', PRODUCT).maybeSingle();
+    const prefs = mergePrefsForPush(SYNCED_SETTINGS, await localPrefs(), (cloud.data?.prefs as Row | null | undefined) ?? null);
     must(await supabase.from('user_preferences').upsert({ user_id: uid, product: PRODUCT, prefs }, { onConflict: 'user_id,product' }));
   }
+}
+
+/** The synced settings on this device, with when each was last changed. */
+async function localPrefs(): Promise<Map<string, LocalPref>> {
+  const m = new Map<string, LocalPref>();
+  for (const k of SYNCED_SETTINGS) { const r = await db.settings.get(k); if (r) m.set(k, { value: r.value, updatedAt: r.updatedAt }); }
+  return m;
 }
 
 let pushing = false;
@@ -233,8 +241,9 @@ export async function pull() {
     }
   });
   await pullTable('user_preferences', async (rows, pending) => {
-    if (pending.has('user_preferences:prefs')) return;
-    for (const r of rows) if (r.product === PRODUCT) for (const k of SYNCED_SETTINGS) if (k in (r.prefs ?? {})) await db.settings.put({ key: k, value: r.prefs[k] });
+    // Checked against what is on the device right now, not what was queued before the request went out, so a change made while this was loading is never undone.
+    void pending;
+    for (const r of rows) if (r.product === PRODUCT) for (const a of prefsToApply(SYNCED_SETTINGS, await localPrefs(), r.prefs)) await db.settings.put({ key: a.key, value: a.value, updatedAt: a.updatedAt });
   }, true);
   // Plan comes from verified entitlements written by the billing webhook.
   const ent = await supabase.from('entitlements').select('plan,active,expires_at').eq('user_id', uid).eq('product', PRODUCT).maybeSingle();

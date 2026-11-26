@@ -63,6 +63,13 @@ export function unlockAudio() {
 interface NPart { chunkIndex: number; chunkCount: number; durationMs: number; url: string; verses: Array<{ n: number; startMs: number }> }
 interface Nat { my: number; key: string; trId: string; style: 'single' | 'dramatized'; voice: string; text: string; offsets: Map<number, { start: number; len: number }> | null; parts: Map<number, Promise<NPart>>; known: number[]; count: number; i: number; part: NPart | null }
 
+/**
+ * Passages that are ready or being made, so the next passage of a well is waiting before the last one ends.
+ * A few are kept (each part is under a megabyte), newest last; the oldest are dropped.
+ */
+const prepared = new Map<string, Promise<Nat>>();
+const PREPARED_MAX = 8;
+
 /** A short sentence for each reason the natural voice could not be used. The reading carries on in the phone's own voice. */
 function whyNot(e: unknown): string {
   const code = (e as { code?: string })?.code, status = (e as { status?: number })?.status;
@@ -77,7 +84,7 @@ const fail = (code: string, message = code) => Object.assign(new Error(message),
 class Player {
   s: PlayerState = { queue: [], index: 0, playing: false, waiting: false, elapsed: 0, total: 0, progress: 0, charPos: 0, rate: 0.9, silence: true, repeat: 'off', shuffle: false, sleepAt: null, voiceless: false, engine: 'device', loading: false, note: '' };
   private subs = new Set<() => void>(); private timer: ReturnType<typeof setInterval> | null = null; private gap: ReturnType<typeof setTimeout> | null = null;
-  private pendingSec = 0; private startChar = 0; private token = 0; private sinceFlush = 0; private lastBoundary = 0; private nat: Nat | null = null; private resumeAdvance = false; private lastTick = 0;
+  private ahead: Promise<void> = Promise.resolve(); private pendingSec = 0; private startChar = 0; private token = 0; private sinceFlush = 0; private lastBoundary = 0; private nat: Nat | null = null; private resumeAdvance = false; private lastTick = 0;
   subscribe = (f: () => void) => { this.subs.add(f); return () => { this.subs.delete(f); }; };
   get = () => this.s;
   private set(p: Partial<PlayerState>) { this.s = { ...this.s, ...p }; this.subs.forEach((f) => f()); }
@@ -126,20 +133,33 @@ class Player {
   }
 
   // ---- the natural voice ----
+  /** Where each verse sits in the text (so the highlight follows the voice word by word) and a place to keep the audio parts as they arrive. */
+  private prepare(it: QItem): Promise<Nat> {
+    const key = `${it.key}|${prefs.style}|${prefs.voice}|${it.text.length}`;
+    let p = prepared.get(key);
+    if (!p) {
+      p = (async () => {
+        const trId = await getTranslation();
+        if (!NARRATION_TRANSLATIONS.includes(trId)) throw fail('not_narratable');
+        const ps = await loadPassage(it.key, trId).catch(() => null);
+        const offsets = ps && ps.text === it.text ? verseOffsets(ps.verses) : null;
+        return { my: 0, key: it.key, trId, style: prefs.style, voice: prefs.voice, text: it.text, offsets, parts: new Map(), known: [], count: 1, i: 0, part: null } as Nat;
+      })();
+      prepared.set(key, p);
+      p.catch(() => prepared.delete(key));
+      while (prepared.size > PREPARED_MAX) prepared.delete(prepared.keys().next().value as string);
+    }
+    return p;
+  }
   private async startNatural(it: QItem, my: number) {
     if (!supabase || !api.apiUrl || !(await supabase.auth.getSession()).data.session) throw fail('signed_out');
-    const trId = await getTranslation();
-    if (!NARRATION_TRANSLATIONS.includes(trId)) throw fail('not_narratable');
-    // Where each verse sits in the text, so the highlight can follow the voice word by word.
-    let offsets: Nat['offsets'] = null;
-    const p = await loadPassage(it.key, trId).catch(() => null);
-    if (p && p.text === it.text) offsets = verseOffsets(p.verses);
+    const n = await this.prepare(it);
     if (my !== this.token) return;
-    this.nat = { my, key: it.key, trId, style: prefs.style, voice: prefs.voice, text: it.text, offsets, parts: new Map(), known: [], count: 1, i: 0, part: null };
+    n.my = my; n.i = 0; n.part = null; this.nat = n;
     await this.playPart(0, my);
   }
-  private fetchPart(i: number): Promise<NPart> {
-    const n = this.nat!; let p = n.parts.get(i);
+  private fetchPart(n: Nat, i: number): Promise<NPart> {
+    let p = n.parts.get(i);
     if (!p) {
       const ask = (mode: string) => api.apiPost<NPart>('/v1/tapestry/narrate', { ref: n.key, translation: n.trId, chunk: i, mode, voice: n.voice || undefined });
       p = ask(n.style).catch((e) => { if (n.style === 'dramatized' && (e as { code?: string }).code === 'upgrade_required') { n.style = 'single'; return ask('single'); } throw e; });
@@ -147,10 +167,25 @@ class Player {
     }
     return p;
   }
+  /**
+   * Gets the start of the next passages ready while this one is being read, so that when it ends the next one begins at once and the
+   * only gap is the silence the person asked for. One at a time, so the server is never asked for a lot at once.
+   */
+  private lookahead(my: number) {
+    const { queue, index, repeat, shuffle } = this.s;
+    if (shuffle || repeat === 'one' || queue.length < 2) return;
+    const upcoming = [1, 2].map((d) => (index + d < queue.length ? queue[index + d] : repeat === 'all' ? queue[(index + d) % queue.length] : undefined)).filter((x): x is QItem => !!x && x !== queue[index]);
+    this.ahead = this.ahead.then(async () => {
+      for (const it of upcoming) {
+        if (my !== this.token || !this.s.playing) return;
+        try { const n = await this.prepare(it); if (my === this.token) await this.fetchPart(n, 0); } catch { return; } // the real start will report any problem
+      }
+    });
+  }
   private async playPart(i: number, my: number) {
     const n = this.nat; if (!n) return;
     this.set({ loading: true });
-    const part = await this.fetchPart(i);
+    const part = await this.fetchPart(n, i);
     if (my !== this.token || this.nat !== n) return;
     n.i = i; n.part = part; n.count = part.chunkCount; n.known[i] = part.durationMs;
     const a = sharedAudio(); a.onended = null; a.onerror = null;
@@ -162,7 +197,8 @@ class Player {
     if (my !== this.token) return;
     this.set({ playing: true, loading: false, engine: 'natural', note: '' });
     this.tickNatural(my);
-    if (i + 1 < n.count) void this.fetchPart(i + 1).catch(() => {}); // the next part is made while this one plays
+    if (i + 1 < n.count) void this.fetchPart(n, i + 1).catch(() => {}); // the next part is made while this one plays
+    if (i === 0 || i === n.count - 1) this.lookahead(my); // and the start of the next passage, so there is no wait when this one ends
   }
   private natFailed(e: unknown, my: number) {
     if (my !== this.token) return;
@@ -213,7 +249,7 @@ class Player {
     if (this.timer) clearInterval(this.timer); this.flushListen(); const it = this.item;
     if (it?.wellId && it.index !== undefined) void setProgress(it.wellId, it.index + 1);
     el?.pause(); this.nat = null;
-    const gapMs = this.s.silence ? Math.min(12000, 3000 + words(it?.text ?? '') * 120) : 600; this.set({ waiting: true, loading: false });
+    const gapMs = this.s.silence ? Math.min(5000, 3000 + words(it?.text ?? '') * 40) : 400; // the quiet after a passage: 3 to 5 seconds this.set({ waiting: true, loading: false });
     this.gap = setTimeout(() => this.advance(1, true), gapMs);
   }
   private advance(dir: 1 | -1, auto = false) {
